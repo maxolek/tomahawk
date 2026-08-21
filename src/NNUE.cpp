@@ -163,11 +163,33 @@ int NNUE::eval_simd(bool is_white_move) {
         // _mm256_mul_epi32 gives signed int32 * int32 -> int64
         // ------------------------------------------------------------
 
-        __m256i us_even =
-            _mm256_mul_epi32(us_sq, us_w);
+        __m256i us_even = _mm256_mul_epi32(us_sq, us_w);
+        __m256i them_even = _mm256_mul_epi32(them_sq, them_w);
 
-        __m256i them_even =
-            _mm256_mul_epi32(them_sq, them_w);
+        /*  DEBUGGING
+        alignas(32) int64_t simd_us_even[4];
+        _mm256_store_si256(
+            reinterpret_cast<__m256i*>(simd_us_even),
+            us_even
+        );
+        for (int j = 0; j < 4; ++j) {
+            int idx = i + j * 2;
+
+            int64_t expected =
+                (int64_t)screlu(us[idx]) * l1w[idx];
+
+            if (simd_us_even[j] != expected) {
+                std::cerr
+                    << "US EVEN MISMATCH"
+                    << " idx=" << idx
+                    << " acc=" << us[idx]
+                    << " weight=" << l1w[idx]
+                    << " scalar=" << expected
+                    << " simd=" << simd_us_even[j]
+                    << "\n";
+            }
+        }
+        */
 
         sum = _mm256_add_epi64(sum, us_even);
         sum = _mm256_add_epi64(sum, them_even);
@@ -207,6 +229,21 @@ int NNUE::eval_simd(bool is_white_move) {
     // ------------------------------------------------------------
     // Match scalar evaluate() exactly
     // ------------------------------------------------------------
+
+    /*  DEBUGGING
+    int64_t scalar_total = 0;
+    for (int i = 0; i < HIDDEN_SIZE; ++i) {
+        scalar_total += (int64_t)screlu(us[i]) * (int32_t)l1w[i];
+        scalar_total += (int64_t)screlu(them[i]) * (int32_t)l1w[HIDDEN_SIZE + i];
+    }
+    if (total != scalar_total) {
+        std::cerr << "\n[SIMD DOT PRODUCT MISMATCH]"
+                << "\nscalar = " << scalar_total
+                << "\nsimd   = " << total
+                << "\ndiff   = " << (total - scalar_total)
+                << "\n";
+    }
+    */
 
     int64_t out64 = total;
 
@@ -409,6 +446,19 @@ void NNUE::on_unmake_move(const Board& board, const Move& mv) {
 // ============================================================
 // Debug helpers
 // ============================================================
+
+void NNUE::debug_simd(const Board& b) {
+    build_accumulators(b);
+    int eval_scalar = evaluate(b.is_white_move);
+    int _eval_simd = eval_simd(b.is_white_move);
+
+    if (eval_scalar != _eval_simd) {
+        std::cerr << "[NNUE DEBUG] SIMD mismatch: "
+                  << "\n scalar=" << eval_scalar
+                  << "\n simd=" << _eval_simd << "\n";
+        abort();
+    }
+}
 
 void NNUE::debug_acc_full(const Accumulator& acc, const std::string& name) const {
     int32_t sum = 0, minv = acc.vals[0], maxv = acc.vals[0];

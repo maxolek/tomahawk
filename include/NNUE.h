@@ -104,12 +104,13 @@ public:
     // Helpers
     // ========================================================
 
-    inline int32_t screlu(int16_t x) const {
+    inline int32_t screlu(int32_t x) const {
         int32_t y = std::clamp<int32_t>(x, 0, QA);
         return y * y;
     }
 
     // debugging
+    void debug_simd(const Board& b);
     //void debug_acc(const Accumulator& acc, const std::string& name) const;
     void debug_acc_full(const Accumulator& acc, const std::string& name) const;
     //void debug_evaluate(const Accumulator& us, const Accumulator& them) const;
