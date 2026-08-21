@@ -753,8 +753,8 @@ void Engine::nnueSIMDTest() {
         Board b = Board(fen);
         ++position;
 
-        int scalar = nnue.evaluate(b.is_white_move);
         nnue.build_accumulators(b);
+        int scalar = nnue.evaluate(b.is_white_move);
         int simd = nnue.eval_simd(b.is_white_move);
 
         if (scalar != simd) {
