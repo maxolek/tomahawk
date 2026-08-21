@@ -203,7 +203,7 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
 
     // Use incremental NNUE output (accumulators must be kept in sync)
     //boardallGameMoves.back().PrintMove();
-    int standPat = nnue.evaluate(board.is_white_move); //eval.taperedEval(board);
+    int standPat = nnue.eval_simd(board.is_white_move); //eval.taperedEval(board);
     if (standPat >= beta) return standPat;
     if (standPat > alpha) alpha = standPat;
 
@@ -351,7 +351,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         && !board.is_in_check
         && beta < MATE_SCORE - 100
     ) {
-        static_eval = nnue.evaluate(board.is_white_move);
+        static_eval = nnue.eval_simd(board.is_white_move);
         int eval_margin = depth * params.REVERSE_FUTILITY_PRUNE_THRESHOLD;
 
         if (static_eval - eval_margin >= beta) {
@@ -384,7 +384,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         )
         && 
         // static eval > beta (use cached if available)
-        ((static_eval ? static_eval : nnue.evaluate(board.is_white_move)
+        ((static_eval ? static_eval : nnue.eval_simd(board.is_white_move)
          ) > beta)
     ) {
         #ifdef DEV
@@ -439,7 +439,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         && !(alpha-beta > 1)
         && !in_check
         && abs(alpha) < 9000
-        && ((static_eval ? static_eval : nnue.evaluate(board.is_white_move)) 
+        && ((static_eval ? static_eval : nnue.eval_simd(board.is_white_move)) 
                 + (depth * params.FUTILITY_PRUNE_MARGIN) <= alpha)
     )
         f_prune = 1;
