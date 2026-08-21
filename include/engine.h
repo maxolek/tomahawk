@@ -162,6 +162,7 @@ public:
     void SEETest(int capture_square);
     void staticEvalTest();
     void nnueEvalTest();
+    void nnueSIMDTest();
     void moveOrderingTest(int depth);
 
     // --- Config ---

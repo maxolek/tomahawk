@@ -732,6 +732,48 @@ void Engine::nnueEvalTest() {
     std::cout << "NNUE Eval: " << eval << " centipawns\n";
 }
 
+void Engine::nnueSIMDTest() {
+    std::ifstream file("../san-jacinto/bin/test_positions/perft.epd");
+
+    if (!file) {
+        std::cerr << "Could not open perft positions file\n";
+        return;
+    }
+
+    std::string line;
+    int position = 0;
+    int errors = 0;
+
+    while (std::getline(file, line)) {
+        if (line.empty())
+            continue;
+
+        // FEN is everything before the first ';'
+        std::string fen = line.substr(0, line.find(';'));
+        Board b = Board(fen);
+        ++position;
+
+        int scalar = nnue.evaluate(b.is_white_move);
+        nnue.build_accumulators(b);
+        int simd = nnue.eval_simd(b.is_white_move);
+
+        if (scalar != simd) {
+            ++errors;
+            std::cerr << "\n[SIMD MISMATCH]"
+                      << "\nPosition: " << position
+                      << "\nFEN:      " << fen
+                      << "\nScalar:   " << scalar
+                      << "\nSIMD:     " << simd
+                      << "\n";
+        }
+    }
+
+    std::cout << "\nSIMD NNUE TEST COMPLETE\n"
+              << "Positions: " << position
+              << "\nErrors:    " << errors
+              << "\n";
+}
+
 void Engine::moveOrderingTest(int depth) {
     std::cout << "=== Move Ordering Test ===\n";
 

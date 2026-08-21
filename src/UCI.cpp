@@ -177,6 +177,9 @@ void UCI::handleCommand(const std::string& line) {
     else if (token == "nnue_eval") {
         engine->nnueEvalTest();
     }
+    else if (token == "nnue_test") {
+        engine->nnueSIMDTest();
+    }
     else if (token == "perft") {
         int depth;
         iss >> depth;
