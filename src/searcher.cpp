@@ -272,7 +272,8 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
 int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                       std::vector<Move>& previousPV, SearchLimits& limits, int ply, 
                       bool can_nmp) {
-
+    int static_eval;
+    int  f_prune = 0; // flag for futility pruning
     #ifdef DEV
         STATS_NODE(depth+ply, ply); // track node per depth
     #else 
@@ -316,7 +317,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
             else if (ttEntry->flag == LOWERBOUND && ttScore >= beta)  return ttScore;
         }
     } 
-    
+
     // --- internal iterative deepening ---
     // no usable TT move, PV node, enough depth to bother
     // run reduced search to replace TT move
@@ -338,6 +339,30 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
     }
     */
 
+    // ---------------------------------------------------
+    // reverse futility pruning (aka static null move pruning)
+    // ---------------------------------------------------
+    // at pre-frontier nodes (2nd-parent of leaf node)
+    // skip the move loop if static eval > beta+margin
+    // similar to NMP but no search, just a fail-high
+    if (
+        depth < 3
+        && !(beta-alpha>1)
+        && !board.is_in_check
+        && beta < MATE_SCORE - 100
+    ) {
+        static_eval = nnue.evaluate(board.is_white_move);
+        int eval_margin = depth * params.REVERSE_FUTILITY_PRUNE_THRESHOLD;
+
+        if (static_eval - eval_margin >= beta) {
+            #ifdef DEV 
+                STATS_RFP(depth+ply, ply);
+            #endif 
+            // padded score prevents overestimating unexpected tactical replies
+            return static_eval - eval_margin; 
+        }
+    }
+
     // -----------------------------
     // Null Move Pruning
     // -----------------------------
@@ -358,8 +383,9 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
             || board.pawn_endgame 
         )
         && 
-        // static eval > beta
-        (nnue.evaluate(board.is_white_move) > beta)
+        // static eval > beta (use cached if available)
+        ((static_eval ? static_eval : nnue.evaluate(board.is_white_move)
+         ) > beta)
     ) {
         #ifdef DEV
             ScopedTimer timer(T_NMP_SEARCH);
@@ -393,8 +419,31 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
 
     int _lmr_R = 0;
 
-    bool in_check, is_pawn_endgame, was_capture, is_capture;
     Move m; int score; PV childPV; PV emptyPV;
+    bool gives_check, is_capture;
+
+    // current board state info
+    bool in_check = board.is_in_check;
+    bool is_pawn_endgame = board.pawn_endgame;
+    bool was_capture = board.currentGameState.capturedPieceType != -1;
+
+    /*
+    FUTILITY PRUNING  
+        not in check
+        not searching for a checkmate 
+        eval is below (alpha - margin)
+    it might  mean that searching non-tactical moves at  low depths    
+     is futile, so we set a flag allowing this pruning               
+     */
+    if (depth <= 3
+        && !(alpha-beta > 1)
+        && !in_check
+        && abs(alpha) < 9000
+        && ((static_eval ? static_eval : nnue.evaluate(board.is_white_move)) 
+                + (depth * params.FUTILITY_PRUNE_MARGIN) <= alpha)
+    )
+        f_prune = 1;
+    
 
     // --- move loop ---
 
@@ -403,17 +452,26 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
 
         m = moves[i];
 
-        // current board state info
-        in_check = board.is_in_check;
-        is_pawn_endgame = board.pawn_endgame;
-        was_capture = board.currentGameState.capturedPieceType != -1;
+        // future board state info
+        gives_check = board.givesCheck(m);
         is_capture = board.getCapturedPiece(m.TargetSquare()) != -1;
-
-        // Apply NNUE/update & board
-        nnue.on_make_move(board, m);
-        board.MakeMove(m);
         
         score = 0; childPV = {}; emptyPV = {};
+
+        // ------------------------------------
+        // Futility Pruning (aka late move pruning)
+        // ------------------------------------
+        if (f_prune                          // Applied at leaf and pre-leaf 
+            && i > params.FUTILITY_PRUNE_MOVE_THRESHOLD  // Only applied to late moves
+            && !is_capture                      // Never prune captures
+            && !m.IsPromotion()                 // Never prune promotions
+            && !gives_check             // Never prune moves that give check
+        ) {
+            #ifdef DEV
+                STATS_FUTILITY_PRUNE(depth+ply, ply);
+            #endif
+            continue; // Skip searching this unpromising quiet move!
+        }
 
         // -----------------------------
         // Late Move Reduction
@@ -440,6 +498,10 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         //    childPV = {}; // dont let teh reduced-search line leak into the full-depth result
         //    score = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply+1, true);
         //}
+
+        // Apply NNUE/update & board
+        nnue.on_make_move(board, m);
+        board.MakeMove(m);
 
         // -----------------------------
         // principal variation search 

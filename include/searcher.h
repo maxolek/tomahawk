@@ -17,9 +17,12 @@ class MoveGenerator;
 
 // ---- search constants ----
 struct SearchParams {
-    // delta / SEE
-    int   DELTA_PRUNE_THRESHOLD  = 1'000;
-    int   SEE_PRUNE_THRESHOLD    = -50;
+    // pruning
+    int   DELTA_PRUNE_THRESHOLD             = 1'000;
+    int   SEE_PRUNE_THRESHOLD               = -50;
+    int   REVERSE_FUTILITY_PRUNE_THRESHOLD  = 150;
+    int   FUTILITY_PRUNE_MARGIN             = 100;
+    int   FUTILITY_PRUNE_MOVE_THRESHOLD     = 5;
     // aspiration windows
     int   ASPIRATION_WINDOW      = 50;
     int   ASPIRATION_START_DEPTH = 6;
