@@ -76,6 +76,7 @@ public:
 
     // Compute final output from accumulators
     int evaluate(bool is_white_move); 
+    int eval_simd(bool is_white_move);
     int full_eval(const Board& b);
 
     // Incremental updates for search

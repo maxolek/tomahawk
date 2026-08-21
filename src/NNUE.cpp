@@ -109,6 +109,115 @@ int NNUE::evaluate(bool is_white_move) {
     return out64; //is_white_move ? out64 : -out64;
 }
 
+// lizard screlu
+int NNUE::eval_simd(bool is_white_move) {
+    #ifdef DEV
+        ScopedTimer timer(T_NNUE);
+    #endif
+
+    const __m256i vec_zero = _mm256_setzero_si256();
+    const __m256i vec_qa   = _mm256_set1_epi32(QA);
+
+    const int32_t* us = is_white_move ? acc_stm.vals : acc_ntm.vals;
+    const int32_t* them = is_white_move ? acc_ntm.vals : acc_stm.vals;
+
+    __m256i sum = _mm256_setzero_si256();
+
+    // 8 neurons batched at once (~8x faster than scalar)
+    for (int i = 0; i < HIDDEN_SIZE; i += 8) {
+        // Load 8 accumulator values (int32)
+        __m256i us_acc = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(us + i)
+        );
+        __m256i them_acc = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(them + i)
+        );
+
+        // ScreLU = clamp(x, 0, QA)^2
+        us_acc = _mm256_min_epi32(
+            _mm256_max_epi32(us_acc, vec_zero),
+            vec_qa
+        );
+        them_acc = _mm256_min_epi32(
+            _mm256_max_epi32(them_acc, vec_zero),
+            vec_qa
+        );
+
+        __m256i us_sq = _mm256_mullo_epi32(us_acc, us_acc);
+        __m256i them_sq = _mm256_mullo_epi32(them_acc, them_acc);
+
+        // Load weights (int16 extended to int32)
+        __m128i us_w16 = _mm_loadu_si128(
+            reinterpret_cast<const __m128i*>(l1w + i)
+        );
+        __m128i them_w16 = _mm_loadu_si128(
+            reinterpret_cast<const __m128i*>(l1w + HIDDEN_SIZE + i)
+        );
+
+        __m256i us_w = _mm256_cvtepi16_epi32(us_w16);
+        __m256i them_w = _mm256_cvtepi16_epi32(them_w16);
+
+        // ------------------------------------------------------------
+        // Multiply even lanes:
+        // lanes 0,2,4,6
+        // _mm256_mul_epi32 gives signed int32 * int32 -> int64
+        // ------------------------------------------------------------
+
+        __m256i us_even =
+            _mm256_mul_epi32(us_sq, us_w);
+
+        __m256i them_even =
+            _mm256_mul_epi32(them_sq, them_w);
+
+        sum = _mm256_add_epi64(sum, us_even);
+        sum = _mm256_add_epi64(sum, them_even);
+
+        // ------------------------------------------------------------
+        // Multiply odd lanes:
+        // shift each 64-bit pair right by 32 so that
+        // elements 1,3,5,7 become the low 32 bits.
+        // ------------------------------------------------------------
+
+        __m256i us_sq_odd = _mm256_srli_epi64(us_sq, 32);
+        __m256i us_w_odd = _mm256_srli_epi64(us_w, 32);
+
+        __m256i them_sq_odd = _mm256_srli_epi64(them_sq, 32);
+        __m256i them_w_odd = _mm256_srli_epi64(them_w, 32);
+
+        __m256i us_odd = _mm256_mul_epi32(us_sq_odd, us_w_odd);
+        __m256i them_odd = _mm256_mul_epi32(them_sq_odd, them_w_odd);
+
+        sum = _mm256_add_epi64(sum, us_odd);
+        sum = _mm256_add_epi64(sum, them_odd);
+    }
+
+    // ------------------------------------------------------------
+    // Horizontal sum of 4 x int64
+    // ------------------------------------------------------------
+
+    __m128i lo = _mm256_castsi256_si128(sum);
+    __m128i hi = _mm256_extracti128_si256(sum, 1);
+
+    __m128i total128 = _mm_add_epi64(lo, hi);
+
+    int64_t total =
+        _mm_cvtsi128_si64(total128) +
+        _mm_extract_epi64(total128, 1);
+
+    // ------------------------------------------------------------
+    // Match scalar evaluate() exactly
+    // ------------------------------------------------------------
+
+    int64_t out64 = total;
+
+    out64 /= (int64_t)QA;
+    out64 += (int64_t)l1b;
+    out64 *= SCALE;
+    out64 /= (int64_t)(QA * QB);
+
+    return (int)out64;
+}
+
 int NNUE::full_eval(const Board& b) {
     build_accumulators(b);
     return evaluate(b.is_white_move);
