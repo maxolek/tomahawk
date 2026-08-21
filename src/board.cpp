@@ -126,18 +126,6 @@ void Board::MakeMove(Move move) {
     zobrist_hash ^= zobristCastlingHash(old_castling);
     zobrist_hash ^= zobristCastlingHash(currentGameState.castlingRights);
 
-    if ((pieceBitboards[king] & colorBitboards[0]) == 0 || (pieceBitboards[king] & colorBitboards[1]) == 0) {
-        std::cerr << "\n\nKING MISSING after unmake: ";
-        move.PrintMove();
-        std::cerr << "captured_piece: " << captured_piece << " move_color=" << move_color << "\n\n";
-        print_board(); 
-        std::cerr << "\nmoves: " << allGameMoves.size() << "\n\n" << std::endl;
-        for (int i = allGameMoves.size() - 1; i >= 0; i--) {
-            allGameMoves[i].PrintMove();
-        }
-        assert(false);
-    }
-
     is_in_check = inCheck(false);
     plyCount++;
     allGameMoves.push_back(move);
@@ -483,6 +471,18 @@ bool Board::inCheck(bool init) {
     if (ortho_sliders & Magics::rookAttacks(king_sq, occ)) return true;
 
     return false;
+}
+
+bool Board::givesCheck(Move move) {
+    // due to discovered checks, promotions, etc
+    // we cannot just use bitboards to detect the check
+    // so just make/unmake the move (fast enoough, but could use some nps testing)
+
+    MakeMove(move);
+    bool in_check = inCheck(true);
+    UnmakeMove(move);
+
+    return in_check;
 }
 
 // ------------------------------------------------------------

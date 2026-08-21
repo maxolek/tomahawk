@@ -375,9 +375,7 @@ void Engine::startSearch() {
     // stats tracking
     auto start_time = std::chrono::steady_clock::now();
     g_run_context.search_uuid = generate_uuid();
-    #ifdef DEV 
-        resetSearchStats();  
-    #endif
+    resetSearchStats();  
     
     // --- generate first moves once ---
     Move first_moves[MAX_MOVES];

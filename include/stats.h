@@ -76,6 +76,8 @@ struct SearchStats {
     uint64_t delta_prunes = 0;
     uint64_t nmp = 0;
     uint64_t nmp_failhigh = 0;
+    uint64_t rfp = 0;
+    uint64_t futility_prune = 0;
 
     // iterative depth (stats per depth of single search)
     // tracks performance improvements across depths
@@ -102,6 +104,8 @@ struct SearchStats {
     std::array<uint64_t, STATS_MAX_ITER_DEPTH> it_depth_delta_prunes{};
     std::array<uint64_t, STATS_MAX_ITER_DEPTH> it_depth_nmp{};
     std::array<uint64_t, STATS_MAX_ITER_DEPTH> it_depth_nmp_failhigh{};
+    std::array<uint64_t, STATS_MAX_ITER_DEPTH> it_depth_rfp{};
+    std::array<uint64_t, STATS_MAX_ITER_DEPTH> it_depth_futility_prune{};
 
     // tree depth (stats per depth of search tree for single search)
     //  this leads to multi-counting as it_depth searches d=1..it_depth tree depths
@@ -122,6 +126,8 @@ struct SearchStats {
     std::array<uint64_t, STATS_MAX_PLY> tree_depth_delta_prunes{};
     std::array<uint64_t, STATS_MAX_PLY> tree_depth_nmp{};
     std::array<uint64_t, STATS_MAX_PLY> tree_depth_nmp_failhigh{};
+    std::array<uint64_t, STATS_MAX_PLY> tree_depth_rfp{};
+    std::array<uint64_t, STATS_MAX_PLY> tree_depth_futility_prune{};
     #endif
 };
 
@@ -262,6 +268,21 @@ inline int fh_bucket(int move_idx) {
         g_stats.it_depth_nmp_failhigh[it_d]++; \
         g_stats.tree_depth_nmp_failhigh[ply]++; \
     } while(0)
+
+#define STATS_RFP(it_d, ply) \
+    do { \
+        g_stats.rfp++; \
+        g_stats.it_depth_rfp[it_d]++; \
+        g_stats.tree_depth_rfp[ply]++; \
+    } while(0)
+
+#define STATS_FUTILITY_PRUNE(it_d, ply) \
+    do { \
+        g_stats.futility_prune++; \
+        g_stats.it_depth_futility_prune[it_d]++; \
+        g_stats.tree_depth_futility_prune[ply]++; \
+    } while(0)
+            
 
     /*
 #define STATS_IID(it_d, ply) \
@@ -432,6 +453,8 @@ inline void logSearchStats(const std::string& fen = "") {
         << "\"pvs_researches_root\":" << g_stats.pvs_researches[2] << ","
         << "\"nmp\":" << g_stats.nmp << ","
         << "\"nmp_failhigh\":" << g_stats.nmp_failhigh << ","
+        << "\"rfp\":" << g_stats.rfp << ","
+        << "\"futility_prune\":" << g_stats.futility_prune << ","
 
         // iteration stats
         << "\"itdepth_time_ms\":" << array_to_json(g_stats.it_depth_time_ms, n) << ","
@@ -455,6 +478,8 @@ inline void logSearchStats(const std::string& fen = "") {
         << "\"itdepth_pvs_researches_root\":" << depth_bucket_to_json(g_stats.it_depth_pvs_researches, n, 2) << ","
         << "\"itdepth_nmp\":" << array_to_json(g_stats.it_depth_nmp, n) << ","
         << "\"itdepth_nmp_failhigh\":" << array_to_json(g_stats.it_depth_nmp_failhigh, n) << ","
+        << "\"itdepth_rfp\":" << array_to_json(g_stats.it_depth_rfp, n) << ","
+        << "\"itdepth_futility_prune\":" << array_to_json(g_stats.it_depth_futility_prune, n) << ","
 
         // tree ply stats
         << "\"treedepth_nodes\":" << array_to_json(g_stats.tree_depth_nodes, q_n) << ","
@@ -471,7 +496,9 @@ inline void logSearchStats(const std::string& fen = "") {
         << "\"treedepth_pvs_researches_full\":" << depth_bucket_to_json(g_stats.tree_depth_pvs_researches, n, 1) << ","
         << "\"treedepth_pvs_researches_root\":" << depth_bucket_to_json(g_stats.tree_depth_pvs_researches, n, 2) << ","
         << "\"treedepth_nmp\":" << array_to_json(g_stats.tree_depth_nmp, q_n) << ","
-        << "\"treedepth_nmp_failhigh\":" << array_to_json(g_stats.tree_depth_nmp_failhigh, q_n)
+        << "\"treedepth_nmp_failhigh\":" << array_to_json(g_stats.tree_depth_nmp_failhigh, q_n) << ","
+        << "\"treedepth_rfp\":" << array_to_json(g_stats.tree_depth_rfp, q_n) << ","
+        << "\"treedepth_futility_prune\":" << array_to_json(g_stats.tree_depth_futility_prune, q_n)
         #endif
         << "}\n";
 
@@ -616,16 +643,18 @@ inline void dumpSearchStats()
  
     // ===================== RESEARCHES / PRUNING / NULL MOVE / ASPIRATION ====
     section("RESEARCHES & PRUNING");
+    row("Aspiration FH Re", g_stats.aspiration_fail_high_researches);
+    row("Aspiration FL Re", g_stats.aspiration_fail_low_researches);
     row("PVS w/ LMR", g_stats.pvs_researches[0]);
     row("PVS full", g_stats.pvs_researches[1]);
     row("PVS @ root", g_stats.pvs_researches[2]);
     row("SEE Prunes", g_stats.see_prunes);
     row("Delta Prunes", g_stats.delta_prunes);
+    row("Rvrs Futil Prunes", g_stats.rfp);
+    row("Futility Prunes", g_stats.futility_prune);
     row("NMP Attempts", g_stats.nmp);
     row("NMP Fails", g_stats.nmp_failhigh);
     row("NMP FH %", nmp_fh_pct, "%");
-    row("Aspiration FH Re", g_stats.aspiration_fail_high_researches);
-    row("Aspiration FL Re", g_stats.aspiration_fail_low_researches);
  
     // ===================== PV =====================
     section("PRINCIPAL VARIATION");
@@ -654,6 +683,8 @@ inline void dumpSearchStats()
          << setw(7)  << "NMPf"
          << setw(8)  << "SEE"
          << setw(8)  << "Delta"
+         << setw(8)  << "RFP"
+         << setw(8)  << "FP"
          << setw(7)  << "PVSl"
          << setw(7)  << "PVSf"
          << setw(7)  << "PVSr"
@@ -682,6 +713,8 @@ inline void dumpSearchStats()
              << setw(7)  << g_stats.it_depth_nmp_failhigh[d]
              << setw(8)  << g_stats.it_depth_see_prunes[d]
              << setw(8)  << g_stats.it_depth_delta_prunes[d]
+             << setw(8)  << g_stats.it_depth_rfp[d]
+             << setw(8)  << g_stats.it_depth_futility_prune[d]
              << setw(7)  << g_stats.it_depth_pvs_researches[d][0]
              << setw(7)  << g_stats.it_depth_pvs_researches[d][1]
              << setw(7)  << g_stats.it_depth_pvs_researches[d][2]
@@ -704,6 +737,8 @@ inline void dumpSearchStats()
          << setw(7)  << "FHavg"
          << setw(8)  << "SEE"
          << setw(8)  << "Delta"
+         << setw(8)  << "RFP"
+         << setw(8)  << "FP"
          << setw(7)  << "PVSl"
          << setw(7)  << "PVSf"
          << setw(7)  << "PVSr"
@@ -726,6 +761,8 @@ inline void dumpSearchStats()
              << setw(7)  << pfh.mean
              << setw(8)  << g_stats.tree_depth_see_prunes[p]
              << setw(8)  << g_stats.tree_depth_delta_prunes[p]
+             << setw(8)  << g_stats.tree_depth_rfp[p]
+             << setw(8)  << g_stats.tree_depth_futility_prune[p]
              << setw(7)  << g_stats.tree_depth_pvs_researches[p][0]
              << setw(7)  << g_stats.tree_depth_pvs_researches[p][1]
              << setw(7)  << g_stats.tree_depth_pvs_researches[p][2]

@@ -94,7 +94,8 @@ public:
     bool isThreefold();
 
     // ==================== Board state checks ====================
-    bool inCheck(bool init); ///< True if the given side is in check
+    bool inCheck(bool init); ///< True if the side-to-move is in check
+    bool givesCheck(Move move); // see if a move will give a check if played
 
     // ==================== FEN handling ====================
     void setFromFEN(std::string _fen); ///< Initialize board from FEN
