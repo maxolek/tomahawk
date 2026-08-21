@@ -28,8 +28,16 @@ namespace Magics {
 
     void initMagics();
 
-    U64 rookAttacks(int sq, U64 occ);
-    U64 bishopAttacks(int sq, U64 occ);
+    // Runtime lookup
+    inline U64 rookAttacks(int sq, U64 occ) {
+        const Magic& magic = rook[sq];
+        return rookAttackTable[magic.offset + magic.indexMap[_pext_u64(occ, magic.mask)]];
+    }
+
+    inline U64 bishopAttacks(int sq, U64 occ) {
+        const Magic& magic = bishop[sq];
+        return bishopAttackTable[magic.offset + magic.indexMap[_pext_u64(occ, magic.mask)]];
+    }
 }
 
 #endif

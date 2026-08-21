@@ -215,7 +215,7 @@ namespace Magics {
         for (int index = 0; index < pextSize; ++index) {
 
             U64 occupancy = _pdep_u64(static_cast<U64>(index), mask);
-            
+
             attacks[index] =
                 rookPiece
                     ? rookAttacksOnTheFly(sq, occupancy)
@@ -315,21 +315,5 @@ namespace Magics {
                 << bishopAttackTable.size()
                 << '\n';
         #endif 
-    }
-
-    // ================================================================
-    // Runtime lookup
-    // ================================================================
-
-    U64 rookAttacks(int sq, U64 occ) {
-        const Magic& magic = rook[sq];
-        U64 pextIndex = _pext_u64(occ, magic.mask);
-        return rookAttackTable[magic.offset + magic.indexMap[pextIndex]];
-    }
-
-    U64 bishopAttacks(int sq, U64 occ) {
-        const Magic& magic = bishop[sq];
-        U64 pextIndex = _pext_u64(occ, magic.mask);
-        return bishopAttackTable[magic.offset + magic.indexMap[pextIndex]];
     }
 }
