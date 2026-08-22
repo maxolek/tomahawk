@@ -68,7 +68,7 @@ struct SearchSettings {
 };
 
 struct EngineOptions {
-    int  MOVE_OVERHEAD_MS = 30;
+    int  MOVE_OVERHEAD_MS = 10;
     int  MAX_THREADS      = 1;
     int  HASH_SIZE_MB     = 512;
     bool PONDERING        = false;

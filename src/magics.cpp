@@ -42,8 +42,8 @@ static constexpr U64 BISHOP_MAGICS_CONST[64] = {
 };
 */
 namespace Magics {
-    Magic rook[64];
-    Magic bishop[64];
+    PextTable rookPext[64]; //Magic rook[64];
+    PextTable bishopPext[64]; //Magic bishop[64];
     std::vector<U64> rookAttackTable;
     std::vector<U64> bishopAttackTable;
 
@@ -187,6 +187,7 @@ namespace Magics {
     // Multiple PEXT indices can produce the same attack bitboard
     // assign each unique attack its own compact index
     // ================================================================
+    /*
     void buildCompactTable(
         Magic& magic,
         std::vector<U64>& globalTable,
@@ -204,12 +205,11 @@ namespace Magics {
         const int pextSize = 1 << pextBits;
 
         magic.pextSize = pextSize;
+        
+        // First generate the attack for every possible PEXT index
+        // use PDEP : pext_index -> occupancy
+        // Then calculate the actual sliding attacks
 
-        /*
-         First generate the attack for every possible PEXT index
-         use PDEP : pext_index -> occupancy
-         Then calculate the actual sliding attacks
-         */
         std::vector<U64> attacks(pextSize);
 
         for (int index = 0; index < pextSize; ++index) {
@@ -240,10 +240,8 @@ namespace Magics {
         const int attackSize = static_cast<int>(uniqueAttacks.size());
         magic.attackSize = attackSize;
 
-        /*
-         need PEXT index -> compact attack index
-         uint16_t is plenty
-         */
+        // need PEXT index -> compact attack index
+        // uint16_t is plenty
         magic.indexMap = new uint16_t[pextSize];
 
         // Build the global packed attack table
@@ -272,10 +270,41 @@ namespace Magics {
             assert(attack == attacks[pextIndex]);
         }
     }
+    */
+
+    void buildPEXTTable(
+        PextTable& table,
+        std::vector<U64>& attackTable,
+        int sq,
+        bool rookPiece
+    ) {
+        const U64 mask = rookPiece
+            ? maskRook(sq)
+            : maskBishop(sq);
+
+        const int bits = __builtin_popcountll(mask);
+        const uint32_t tableSize = 1u << bits;
+
+        table.mask = mask;
+        table.offset = static_cast<uint32_t>(attackTable.size());
+
+        attackTable.resize(attackTable.size() + tableSize);
+
+        for (uint32_t index = 0; index < tableSize; ++index) {
+            const U64 occupancy =
+                _pdep_u64(static_cast<U64>(index), mask);
+
+            attackTable[table.offset + index] =
+                rookPiece
+                    ? rookAttacksOnTheFly(sq, occupancy)
+                    : bishopAttacksOnTheFly(sq, occupancy);
+        }
+    }
 
     // ================================================================
     // Initialization
     // ================================================================
+    /*
     void initMagics() {
         rookAttackTable.clear();
         bishopAttackTable.clear();
@@ -283,7 +312,7 @@ namespace Magics {
         // Rough upper bounds
         // These aren't required; they just avoid some reallocations.
         rookAttackTable.reserve(100000);
-        bishopAttackTable.reserve(20000);
+        bishopAttackTable.reserve(10000);
 
         for (int sq = 0; sq < 64; ++sq) {
             buildCompactTable(rook[sq], rookAttackTable, sq, true);
@@ -315,5 +344,30 @@ namespace Magics {
                 << bishopAttackTable.size()
                 << '\n';
         #endif 
+    }
+     */
+
+    void initPEXTMagics() {
+        rookAttackTable.clear();
+        bishopAttackTable.clear();
+
+        rookAttackTable.reserve(100000);
+        bishopAttackTable.reserve(10000);
+
+        for (int sq = 0; sq < 64; ++sq) {
+            buildPEXTTable(
+                rookPext[sq],
+                rookAttackTable,
+                sq,
+                true
+            );
+
+            buildPEXTTable(
+                bishopPext[sq],
+                bishopAttackTable,
+                sq,
+                false
+            );
+        }
     }
 }

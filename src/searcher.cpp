@@ -433,7 +433,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         not searching for a checkmate 
         eval is below (alpha - margin)
     it might  mean that searching non-tactical moves at  low depths    
-     is futile, so we set a flag allowing this pruning               
+    is futile, so we set a flag allowing this pruning               
      */
     if (depth <= 3
         && !(alpha-beta > 1)

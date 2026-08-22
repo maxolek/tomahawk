@@ -82,7 +82,7 @@ int main() {
     // inits
     Logging::initFiles();
     PrecomputedMoveData::init();
-    Magics::initMagics();
+    Magics::initPEXTMagics(); //initMagics();
 
     // engine
     Engine engine;
