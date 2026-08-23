@@ -19,6 +19,25 @@ inline int feature_index_ntm_halfka(int sq, int piece, int color, int king_sq) {
     return 768*(king_sq^56) + (color==0 ? 384:0) + piece*64 + (sq^56);
 }
 
+/*
+inline int feature_index_stm_halfka(int sq, int piece, int color, int king_sq,
+                                     bool stm_is_white) {
+    // Always express "own piece" (color == stm's color) as block 0.
+    bool is_own = (color == 0) == stm_is_white;
+    int sq_ = stm_is_white ? sq : (sq ^ 56);
+    int ksq_ = stm_is_white ? king_sq : (king_sq ^ 56);
+    return 768*ksq_ + (is_own ? 0 : 384) + piece*64 + sq_;
+}
+
+inline int feature_index_ntm_halfka(int sq, int piece, int color, int king_sq,
+                                     bool stm_is_white) {
+    bool is_own = (color == 0) == stm_is_white;   // still relative to STM, not NTM's own color
+    int sq_ = stm_is_white ? (sq ^ 56) : sq;
+    int ksq_ = stm_is_white ? (king_sq ^ 56) : king_sq;
+    return 768*ksq_ + (is_own ? 384 : 0) + piece*64 + sq_;
+}
+*/
+
 inline int feature_index_stm(int sq, int piece, int color) {
     // color: 0 = white, 1 = black
     return (color == 0 ? 0 : 384) + piece*64 + sq;
@@ -83,34 +102,23 @@ void NNUE::build_accumulators(const Board& b) {
     //acc_ntm.dump_active_features("build_ntm");
 }
 
-void NNUE::build_halfka_accumulators(const Board& b, const bool is_white_move) {
-    int side_color = is_white_move ? 0 : 1;
-    Accumulator& acc = (side_color == 0) ? acc_stm : acc_ntm;
-    int king_sq = b.kingSquare(side_color);
-    U64 bb = b.colorBitboards[side_color];
+void NNUE::build_halfka_accumulators(const Board& b) {
+    int w_king_sq = b.kingSquare(0);
+    int b_king_sq = b.kingSquare(1);
 
-    acc.init_bias(l0b);
+    acc_stm.init_bias(l0b);
+    acc_ntm.init_bias(l0b);
 
-    int sq_idx;
-    int pc; int pc_c;
-
+    U64 bb = b.colorBitboards[0] | b.colorBitboards[1];
     while (bb) {
-        sq_idx = getLSB(bb);
-        bb &= bb-1;
-        
-        pc = b.getMovedPiece(sq_idx);
-        pc_c = b.getSideAt(sq_idx);
+        int sq_idx = getLSB(bb);
+        bb &= bb - 1;
+        int pc   = b.getMovedPiece(sq_idx);
+        int pc_c = b.getSideAt(sq_idx);
 
-        acc.add_feature(
-            side_color == 0 
-                ? feature_index_stm_halfka(sq_idx, pc, pc_c, king_sq)
-                : feature_index_ntm_halfka(sq_idx, pc, pc_c, king_sq)
-            , l0w
-        );
+        acc_stm.add_feature(feature_index_stm_halfka(sq_idx, pc, pc_c, w_king_sq), l0w);
+        acc_ntm.add_feature(feature_index_ntm_halfka(sq_idx, pc, pc_c, b_king_sq), l0w);
     }
-
-    //acc_stm.dump_active_features("build_stm");
-    //acc_ntm.dump_active_features("build_ntm");
 }
 
 // ============================================================

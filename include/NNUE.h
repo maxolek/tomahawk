@@ -115,7 +115,7 @@ public:
 
     // Build full accumulators from board
     void build_accumulators(const Board& b);
-    void build_halfka_accumulators(const Board& b, const bool is_white_move);
+    void build_halfka_accumulators(const Board& b);
 
     // ========== L0: 768 → 128 ==========
     // Stored column-major: W0[feature][hidden]

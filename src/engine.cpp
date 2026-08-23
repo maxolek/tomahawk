@@ -335,8 +335,7 @@ void Engine::computeSearchTime(const SearchSettings& settings) {
 void Engine::startSearch() {
     // set nnue
     //nnue.build_accumulators(search_board);
-    nnue.build_halfka_accumulators(search_board, true);
-    nnue.build_halfka_accumulators(search_board, false);
+    nnue.build_halfka_accumulators(search_board);
 
     // book probe
     if (!engine_options.opening_book_path.empty()) {
@@ -726,8 +725,7 @@ void Engine::staticEvalTest() {
 
 void Engine::nnueEvalTest() {
     //nnue.build_accumulators(search_board);
-    nnue.build_halfka_accumulators(search_board, true);
-    nnue.build_halfka_accumulators(search_board, false);
+    nnue.build_halfka_accumulators(search_board);
 
     int eval = nnue.evaluate(search_board.is_white_move);
     int simd_eval = nnue.eval_simd(search_board.is_white_move);
