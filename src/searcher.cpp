@@ -881,14 +881,16 @@ void Searcher::perform_move(Board& board, const Move& move, const bool is_halfka
        dependent on king square) so this is done after the board is updated*/
     bool needs_refresh = is_halfka && is_king_move;
 
-    if (!needs_refresh) nnue.on_make_move(board, move);
+    if (!needs_refresh) nnue.on_make_move_halfka(board, move);
     board.MakeMove(move);
     if (needs_refresh) nnue.build_halfka_accumulators(board, !board.is_white_move); // ! since move was just performed so STM changed
 }
 void Searcher::perform_unmove(Board& board, const Move& move, const bool is_halfka, const bool is_king_move) {
     bool needs_refresh = is_halfka && is_king_move;
 
-    if (!needs_refresh) nnue.on_unmake_move(board, move);
+    //std::swap(nnue.acc_stm, nnue.acc_ntm); // swap accumulators for next move
+
+    if (!needs_refresh) nnue.on_unmake_move_halfka(board, move);
     board.UnmakeMove(move);
     if (needs_refresh) nnue.build_halfka_accumulators(board, board.is_white_move); // STM is back to original after unmake
 }
