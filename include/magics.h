@@ -2,28 +2,13 @@
 #define MAGICS_H
 
 #include "helpers.h"
-#include <immintrin.h>
+#ifdef _WIN32
+    #include <immintrin.h>
+#endif
 
 namespace Magics {
 
-    /*
-    struct Magic {
-        U64 mask;
-
-        // Offset into the global packed attack table.
-        uint32_t offset;
-
-        // PEXT index -> compact attack-table index.
-        // Max PEXT index is 4095 for rooks, so uint16_t is sufficient.
-        uint16_t* indexMap;
-
-        uint16_t pextSize;
-        uint16_t attackSize;
-    };
-
-    extern Magic rook[64];
-    extern Magic bishop[64];
-    */
+#ifdef _WIN32
     struct PextTable {
         U64 mask;
         uint32_t offset;
@@ -48,23 +33,10 @@ namespace Magics {
     
     extern std::vector<U64> rookAttackTable;
     extern std::vector<U64> bishopAttackTable;
-
-    //void initMagics();
+    
     void initPEXTMagics();
 
     // Runtime lookup
-    /*
-    inline U64 rookAttacks(int sq, U64 occ) {
-        const Magic& magic = rook[sq];
-        return rookAttackTable[magic.offset + magic.indexMap[_pext_u64(occ, magic.mask)]];
-    }
-
-    inline U64 bishopAttacks(int sq, U64 occ) {
-        const Magic& magic = bishop[sq];
-        return bishopAttackTable[magic.offset + magic.indexMap[_pext_u64(occ, magic.mask)]];
-    }
-    */
-
     inline U64 rookAttacks(int sq, U64 occ) {
         const PextTable& t = rookPext[sq]; // rook[sq];
         return rookAttackTable[t.offset + _pext_u64(occ, t.mask)];
@@ -74,6 +46,25 @@ namespace Magics {
         const PextTable& t = bishopPext[sq]; // bishop[sq];
         return bishopAttackTable[t.offset + _pext_u64(occ, t.mask)];
     }
+#else
+    extern U64 rookAttackTable[64][4096]; // precompute and store
+    extern U64 bishopAttackTable[64][512];
+    extern U64 rookMasks[64];
+    extern U64 bishopMasks[64];
+    extern U64 rookMagics[64];
+    extern U64 bishopMagics[64];
+    extern int rookShifts[64];
+    extern int bishopShifts[64];
+
+    void initMagics(); // call at engine startup
+    U64 maskRook(int sq);
+    U64 maskBishop(int sq);
+    std::vector<U64> generateAllOccupancies(U64 mask);
+    U64 rookAttacksOnTheFly(int sq, U64 blockers);
+    U64 bishopAttacksOnTheFly(int sq, U64 blockers);
+    U64 rookAttacks(int sq, U64 occ);
+    U64 bishopAttacks(int sq, U64 occ);
+#endif
 }
 
 #endif

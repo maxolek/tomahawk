@@ -203,7 +203,11 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
 
     // Use incremental NNUE output (accumulators must be kept in sync)
     //boardallGameMoves.back().PrintMove();
-    int standPat = nnue.eval_simd(board.is_white_move); //eval.taperedEval(board);
+#ifdef _WIN32
+    int standPat = nnue.eval_simd(board.is_white_move);
+#else 
+    int standPat = nnue.evaluate(board.is_white_move);
+#endif
     if (standPat >= beta) return standPat;
     if (standPat > alpha) alpha = standPat;
 
@@ -272,7 +276,11 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
 int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                       std::vector<Move>& previousPV, SearchLimits& limits, int ply, 
                       bool can_nmp) {
+#ifdef _WIN32
     int static_eval = nnue.eval_simd(board.is_white_move);
+#else 
+    int static_eval = nnue.evaluate(board.is_white_move);
+#endif
     int  f_prune = 0; // flag for futility pruning
     bool is_king_move = false;
     #ifdef DEV
@@ -879,6 +887,8 @@ void Searcher::perform_move(Board& board, const Move& move, const bool is_halfka
        dependent on king square) so this is done after the board is updated*/
     bool needs_refresh = is_halfka && is_king_move;
 
+    nnue.debug_check_incr_vs_full_after_make(board, move);
+
     if (!needs_refresh) nnue.on_make_move_halfka(board, move);
     board.MakeMove(move);
     if (needs_refresh) nnue.build_halfka_accumulators(board); // ! since move was just performed so STM changed
@@ -887,6 +897,8 @@ void Searcher::perform_unmove(Board& board, const Move& move, const bool is_half
     bool needs_refresh = is_halfka && is_king_move;
 
     //std::swap(nnue.acc_stm, nnue.acc_ntm); // swap accumulators for next move
+
+    nnue.debug_check_incr_vs_full_after_unmake(board, move);
 
     if (!needs_refresh) nnue.on_unmake_move_halfka(board, move);
     board.UnmakeMove(move);

@@ -82,7 +82,11 @@ int main() {
     // inits
     Logging::initFiles();
     PrecomputedMoveData::init();
+#ifdef _WIN32
     Magics::initPEXTMagics(); //initMagics();
+#else 
+    Magics::initMagics();
+#endif
 
     // engine
     static Engine engine;
