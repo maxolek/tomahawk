@@ -771,7 +771,9 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
     Move prevBest = Move::NullMove();
 
     // Build NNUE accumulators for root position
-    nnue.build_accumulators(board);
+    //nnue.build_accumulators(board);
+    nnue.build_halfka_accumulators(board, true);
+    nnue.build_halfka_accumulators(board, false);
 
     // --- iterative deepening loop ---
     while (!limits.should_stop(depth)) {

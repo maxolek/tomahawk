@@ -15,7 +15,7 @@
 // ============================================================
 
 constexpr int INPUT_SIZE  = 768*64;   // Chess768 features 64*12 -- sq*piece*color (+ sq)
-constexpr int HIDDEN_SIZE = 512;   // Hidden dimension
+constexpr int HIDDEN_SIZE = 1024;   // Hidden dimension
 
 // bucketing
 constexpr int FILE_GROUP[8] = {0, 1, 2, 3, 3, 2, 1, 0};
