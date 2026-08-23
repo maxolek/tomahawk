@@ -14,8 +14,11 @@
 // Network Dimensions
 // ============================================================
 
-constexpr int INPUT_SIZE  = 768;   // Chess768 features 64*12 -- sq*piece*color (+ sq)
-constexpr int HIDDEN_SIZE = 128;   // Hidden dimension
+constexpr int INPUT_SIZE  = 768*64;   // Chess768 features 64*12 -- sq*piece*color (+ sq)
+constexpr int HIDDEN_SIZE = 512;   // Hidden dimension
+
+// bucketing
+constexpr int FILE_GROUP[8] = {0, 1, 2, 3, 3, 2, 1, 0};
 
 // Quantisation factors used in training
 constexpr int QA = 255;
@@ -49,6 +52,31 @@ struct Accumulator {
             vals[i] -= col[i];
         //active_features.erase(feature_idx);
     }
+
+    /*
+    inline void get_bucket_and_flip(int king_sq, int& bucket, int& flip) {
+        int file = king_sq % 8;
+        int rank_group = king_sq / 8;
+        flip = (file > 3) ? 7 : 0;
+        bucket = BUCKET_LAYOUT[rank_group * 4 + FILE_GROUP[file]];
+    }
+
+    inline int feature_index_stm(int sq, int piece, int color, int bucket) {
+        int file = white_king_sq % 8;
+        int flip = (file > 3) ? 7 : 0;
+        int sq_m = sq ^ flip;
+        return 768*bucket + (color==0 ? 0:384) + piece*64 + sq_m;
+    }
+
+    inline int feature_index_ntm(int sq, int piece, int color, int bucket) {
+        int black_king_canon = black_king_sq ^ 56;
+        int file = black_king_canon % 8;          // == black_king_sq % 8, ^56 doesn't touch file bits
+        int flip = (file > 3) ? 7 : 0;
+        int sq_m = (sq ^ 56) ^ flip;
+        return 768*bucket + (color==0 ? 384:0) + piece*64 + sq_m;
+    }
+    */
+
     /*
     void dump_active_features(const char* name) const {
         std::cout << "[ACTIVE FEATURES] " << name << " count=" << active_features.size() << "\n";
@@ -81,7 +109,13 @@ public:
 
     // Incremental updates for search
     void on_make_move(const Board& board, const Move& mv);
+    void on_make_move_halfka(const Board& board, const Move& mv);
     void on_unmake_move(const Board& board, const Move& mv);
+    void on_unmake_move_halfka(const Board& board, const Move& mv);
+
+    // Build full accumulators from board
+    void build_accumulators(const Board& b);
+    void build_halfka_accumulators(const Board& b);
 
     // ========== L0: 768 → 128 ==========
     // Stored column-major: W0[feature][hidden]
@@ -134,6 +168,5 @@ public:
                                               bool abort_on_mismatch = true);
     void debug_check_features_after_move(const Board& b);
 */
-    // Build full accumulators from board
-    void build_accumulators(const Board& b);
+    
 };

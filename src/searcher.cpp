@@ -226,23 +226,23 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
 
     int bestEval = standPat;
     Move bestMove = Move::NullMove();
+    bool is_king_move = false;
 
     for (int i = 0; i < count; i++) {
         if (limits.out_of_time()) break;
 
         Move m = moves[i];
         if (shouldPrune(m, standPat, alpha, search_depth, ply)) continue;
+        is_king_move = board.getMovedPiece(m.StartSquare()) == king;
 
         // Apply NNUE incremental update then board move
-        nnue.on_make_move(board, m);
-        board.MakeMove(m);
+        perform_move(board, m, true, is_king_move);
 
         int score; PV childPV;
         score = -quiescence(-beta, -alpha, childPV, limits, ply+1, depth, search_depth);
 
         // Undo board & NNUE (capture before must be reconstructed from states)
-        nnue.on_unmake_move(board, m);
-        board.UnmakeMove(m);
+        perform_unmove(board, m, true, is_king_move);
 
         if (score >= beta) { 
             #ifdef DEV
@@ -274,6 +274,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                       bool can_nmp) {
     int static_eval;
     int  f_prune = 0; // flag for futility pruning
+    bool is_king_move = false;
     #ifdef DEV
         STATS_NODE(depth+ply, ply); // track node per depth
     #else 
@@ -455,6 +456,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         // future board state info
         gives_check = board.givesCheck(m);
         is_capture = board.getCapturedPiece(m.TargetSquare()) != -1;
+        is_king_move = board.getMovedPiece(m.StartSquare()) == king;
         
         score = 0; childPV = {}; emptyPV = {};
 
@@ -500,8 +502,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         //}
 
         // Apply NNUE/update & board
-        nnue.on_make_move(board, m);
-        board.MakeMove(m);
+        perform_move(board, m, true, is_king_move);
 
         // -----------------------------
         // principal variation search 
@@ -544,8 +545,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         }
 
 
-        nnue.on_unmake_move(board, m);
-        board.UnmakeMove(m);
+        perform_unmove(board, m, true, is_king_move);
 
         if (score > bestEval) {
             bestEval = score;
@@ -599,6 +599,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
     int _lmr_R = 0;
     int nodes_before = 0;
     bool exact = false;
+    bool is_king_move = false;
 
     // current board state info
     bool in_check = board.is_in_check;
@@ -643,8 +644,10 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                 auto move_start = std::chrono::steady_clock::now();
             #endif
 
-            nnue.on_make_move(board, m);
-            board.MakeMove(m);
+            // move type for nnue updates
+            is_king_move = board.getMovedPiece(m.StartSquare()) == king;
+
+            perform_move(board, m, true, is_king_move);
   
             PV childPV; PV emptyPV; // must be declared per root_move
 
@@ -704,8 +707,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                 }
             }
             
-            nnue.on_unmake_move(board, m);
-            board.UnmakeMove(m);
+            perform_unmove(board, m, true, is_king_move);
 
             #ifdef DEV
                 auto move_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -870,4 +872,23 @@ int Searcher::R_lmr(int depth, int move_order) {
     int reduction = static_cast<int>(params.R_LMR_CONST + (log_depth * log_order) / params.R_LMR_DENOM);
     
     return std::min(reduction, depth-2);
+}
+
+// ----- nnue helpers -----
+void Searcher::perform_move(Board& board, const Move& move, const bool is_halfka, const bool is_king_move) {
+    /* incremental updates are performed before the board is updated
+       but king moves require a full refresh (due to feature indexing being
+       dependent on king square) so this is done after the board is updated*/
+    bool needs_refresh = is_halfka && is_king_move;
+
+    if (!needs_refresh) nnue.on_make_move(board, move);
+    board.MakeMove(move);
+    if (needs_refresh) nnue.build_halfka_accumulators(board);
+}
+void Searcher::perform_unmove(Board& board, const Move& move, const bool is_halfka, const bool is_king_move) {
+    bool needs_refresh = is_halfka && is_king_move;
+
+    if (!needs_refresh) nnue.on_unmake_move(board, move);
+    board.UnmakeMove(move);
+    if (needs_refresh) nnue.build_halfka_accumulators(board);
 }

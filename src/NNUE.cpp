@@ -8,6 +8,17 @@
 // Helpers
 // ============================================================
 
+inline int feature_index_stm_halfka(int sq, int piece, int color, int king_sq) {
+    // 768 * king_sq + __regular_feature_index__
+    return 768*king_sq + (color==0 ? 0:384) + piece*64 + sq;
+}
+
+inline int feature_index_ntm_halfka(int sq, int piece, int color, int king_sq) {
+    // 768 * king_sq + __regular_feature_index__
+    // squares are flipped for NTM
+    return 768*(king_sq^56) + (color==0 ? 384:0) + piece*64 + (sq^56);
+}
+
 inline int feature_index_stm(int sq, int piece, int color) {
     // color: 0 = white, 1 = black
     return (color == 0 ? 0 : 384) + piece*64 + sq;
@@ -53,8 +64,6 @@ void NNUE::build_accumulators(const Board& b) {
     acc_stm.init_bias(l0b);
     acc_ntm.init_bias(l0b);
 
-    int stm = b.move_color;
-
     U64 bb = b.colorBitboards[0] | b.colorBitboards[1];
     int sq_idx;
     int pc; int pc_c;
@@ -72,9 +81,32 @@ void NNUE::build_accumulators(const Board& b) {
 
     //acc_stm.dump_active_features("build_stm");
     //acc_ntm.dump_active_features("build_ntm");
+}
 
-    // Ensure STM corresponds to side to move
-    //if (!b.is_white_move) std::swap(acc_stm, acc_ntm);
+void NNUE::build_halfka_accumulators(const Board& b) {
+    int w_king_sq = b.kingSquare(0);
+    int b_king_sq = b.kingSquare(1);
+
+    acc_stm.init_bias(l0b);
+    acc_ntm.init_bias(l0b);
+
+    U64 bb = b.colorBitboards[0] | b.colorBitboards[1];
+    int sq_idx;
+    int pc; int pc_c;
+
+    while (bb) {
+        sq_idx = getLSB(bb);
+        bb &= bb-1;
+        
+        pc = b.getMovedPiece(sq_idx);
+        pc_c = b.getSideAt(sq_idx);
+
+        acc_stm.add_feature(feature_index_stm_halfka(sq_idx, pc, pc_c, w_king_sq), l0w);
+        acc_ntm.add_feature(feature_index_ntm_halfka(sq_idx, pc, pc_c, b_king_sq), l0w);
+    }
+
+    //acc_stm.dump_active_features("build_stm");
+    //acc_ntm.dump_active_features("build_ntm");
 }
 
 // ============================================================
@@ -344,6 +376,90 @@ void NNUE::on_make_move(const Board& before, const Move& mv) {
     //std::swap(acc_stm, acc_ntm);
 }
 
+void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
+    int moved_piece = before.getMovedPiece(mv.StartSquare());
+    int piece_color = before.getSideAt(mv.StartSquare());
+    bool promo = mv.IsPromotion();
+
+    // searcher will rebuild accumulators after making move on board
+    // so we can return early here 
+    if (moved_piece == king) return;
+    int w_king_sq = before.kingSquare(0);
+    int b_king_sq = before.kingSquare(1);
+
+    // Feature indices for moved piece (both accumulators)
+    int f_from_stm = feature_index_stm_halfka(mv.StartSquare(), moved_piece, piece_color, w_king_sq);
+    int f_to_stm   = feature_index_stm_halfka(mv.TargetSquare(), moved_piece, piece_color, w_king_sq);
+    int f_from_ntm = feature_index_ntm_halfka(mv.StartSquare(), moved_piece, piece_color, b_king_sq);
+    int f_to_ntm   = feature_index_ntm_halfka(mv.TargetSquare(), moved_piece, piece_color, b_king_sq);
+
+    // ---- Update both POV accumulators for the moved piece ----
+    acc_stm.remove_feature(f_from_stm, l0w);
+    acc_stm.add_feature(f_to_stm, l0w);
+
+    acc_ntm.remove_feature(f_from_ntm, l0w);
+    acc_ntm.add_feature(f_to_ntm, l0w);
+
+    // Promotion: replace pawn feature with promoted piece (both POVs)
+    if (promo) {
+        int promo_piece = mv.PromotionPieceType();
+        int f_promo_stm = feature_index_stm_halfka(mv.TargetSquare(), promo_piece, piece_color, w_king_sq);
+        int f_promo_ntm = feature_index_ntm_halfka(mv.TargetSquare(), promo_piece, piece_color, b_king_sq);
+
+        // remove pawn entry we just added, then add promoted piece
+        acc_stm.remove_feature(f_to_stm, l0w);
+        acc_stm.add_feature(f_promo_stm, l0w);
+
+        acc_ntm.remove_feature(f_to_ntm, l0w);
+        acc_ntm.add_feature(f_promo_ntm, l0w);
+    }
+
+    // ---- Captured piece: remove from BOTH accumulators ----
+    int captured_piece = before.getCapturedPiece(mv.TargetSquare());
+    if (captured_piece != -1 && mv.MoveFlag() != Move::enPassantCaptureFlag) {
+        // actual color of captured piece (should equal ntm but use board for safety)
+        int cap_color = other_color(piece_color);
+        int f_cap_ntm = feature_index_ntm_halfka(mv.TargetSquare(), captured_piece, cap_color, b_king_sq);
+        int f_cap_stm = feature_index_stm_halfka(mv.TargetSquare(), captured_piece, cap_color, w_king_sq);
+        acc_ntm.remove_feature(f_cap_ntm, l0w);
+        acc_stm.remove_feature(f_cap_stm, l0w);
+    }
+
+    // ---- En passant: captured pawn is on cap_sq (remove from BOTH) ----
+    if (mv.MoveFlag() == Move::enPassantCaptureFlag) {
+        int cap_sq = mv.TargetSquare() + (piece_color == 0 ? -8 : 8);
+        int cap_color = other_color(piece_color);
+        int f_cap_ntm = feature_index_ntm_halfka(cap_sq, pawn, cap_color, b_king_sq);
+        int f_cap_stm = feature_index_stm_halfka(cap_sq, pawn, cap_color, w_king_sq);
+        acc_ntm.remove_feature(f_cap_ntm, l0w);
+        acc_stm.remove_feature(f_cap_stm, l0w);
+    }
+
+    // ---- Castling rook: update both POVs for rook from/to ----
+    if (mv.MoveFlag() == Move::castleFlag) {
+        int rank = (piece_color == 0 ? 0 : 7);
+        int rook_from = (mv.TargetSquare() % 8 == 6 ? rank*8 + 7 : rank*8);
+        int rook_to   = (mv.TargetSquare() % 8 == 6 ? rank*8 + 5 : rank*8 + 3);
+
+        int f_r_from_stm = feature_index_stm_halfka(rook_from, rook, piece_color, w_king_sq);
+        int f_r_to_stm   = feature_index_stm_halfka(rook_to,   rook, piece_color, w_king_sq);
+        int f_r_from_ntm = feature_index_ntm_halfka(rook_from, rook, piece_color, b_king_sq);
+        int f_r_to_ntm   = feature_index_ntm_halfka(rook_to,   rook, piece_color, b_king_sq);
+
+        acc_stm.remove_feature(f_r_from_stm, l0w);
+        acc_stm.add_feature(f_r_to_stm, l0w);
+
+        acc_ntm.remove_feature(f_r_from_ntm, l0w);
+        acc_ntm.add_feature(f_r_to_ntm, l0w);
+    }
+
+    //Board b_after = before; b_after.MakeMove(mv);
+    //debug_check_features_after_move(b_after);
+
+    // Finally swap so acc_stm always points to the side-to-move for the new board state
+    //std::swap(acc_stm, acc_ntm);
+}
+
 // called before board.unmake_move() 
 // so board is in post-move state
 // called before board.unmake_move() 
@@ -442,6 +558,104 @@ void NNUE::on_unmake_move(const Board& board, const Move& mv) {
 }
 
 
+void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
+    bool promo = mv.IsPromotion();
+
+    int moved_piece = board.getMovedPiece(mv.TargetSquare());
+    int piece_color = board.getSideAt(mv.TargetSquare());
+
+    // searcher will rebuild accumulators after making move on board
+    // so we can return early here 
+    if (moved_piece == king) return;
+    int w_king_sq = board.kingSquare(0);
+    int b_king_sq = board.kingSquare(1);
+
+    int f_to_stm   = feature_index_stm_halfka(mv.TargetSquare(), moved_piece, piece_color, w_king_sq);
+    int f_from_stm = feature_index_stm_halfka(mv.StartSquare(), moved_piece, piece_color, w_king_sq);
+    int f_to_ntm   = feature_index_ntm_halfka(mv.TargetSquare(), moved_piece, piece_color, b_king_sq);
+    int f_from_ntm = feature_index_ntm_halfka(mv.StartSquare(), moved_piece, piece_color, b_king_sq);
+
+    //std::cout << "[NNUE DEBUG] UNMAKE MOVE " << mv.uci() << "\n";
+    //std::cout << "  moved_piece: " << moved_piece
+    //          << " color: " << piece_color
+    //          << " from=" << mv.StartSquare()
+    //          << " to=" << mv.TargetSquare() << "\n";
+
+    // Undo promotion
+    if (promo) {
+        int promo_piece = mv.PromotionPieceType();
+        int f_promo_stm = feature_index_stm_halfka(mv.TargetSquare(), promo_piece, piece_color, w_king_sq);
+        int f_pawn_stm  = feature_index_stm_halfka(mv.StartSquare(), pawn, piece_color, w_king_sq);
+        int f_promo_ntm = feature_index_ntm_halfka(mv.TargetSquare(), promo_piece, piece_color, b_king_sq);
+        int f_pawn_ntm  = feature_index_ntm_halfka(mv.StartSquare(), pawn, piece_color, b_king_sq);
+
+        // std::cout << "  Promotion: remove promo " << promo_piece
+        //           << " add pawn\n";
+
+        acc_stm.remove_feature(f_promo_stm, l0w);
+        acc_stm.add_feature(f_pawn_stm, l0w);
+        acc_ntm.remove_feature(f_promo_ntm, l0w);
+        acc_ntm.add_feature(f_pawn_ntm, l0w);
+    } else {
+        // Normal move
+        //std::cout << "  Normal: remove to_idx=" << f_to_stm << " add from_idx=" << f_from_stm << "\n";
+        acc_stm.remove_feature(f_to_stm, l0w);
+        acc_stm.add_feature(f_from_stm, l0w);
+        acc_ntm.remove_feature(f_to_ntm, l0w);
+        acc_ntm.add_feature(f_from_ntm, l0w);
+    }
+
+    // Undo captures
+    int captured_piece = board.currentGameState.capturedPieceType;
+    if (captured_piece != -1 && mv.MoveFlag() != Move::enPassantCaptureFlag) {
+        int cap_sq = mv.TargetSquare();
+        int cap_color = other_color(piece_color); // should be the captured piece color
+        int f_cap_stm = feature_index_stm_halfka(cap_sq, captured_piece, cap_color, w_king_sq);
+        int f_cap_ntm = feature_index_ntm_halfka(cap_sq, captured_piece, cap_color, b_king_sq);
+
+        // std::cout << "  Capture: piece=" << captured_piece
+        //           << " color=" << cap_color
+        //           << " square=" << cap_sq
+        //           << " f_stm=" << f_cap_stm
+        //           << " f_ntm=" << f_cap_ntm << "\n";
+
+        acc_stm.add_feature(f_cap_stm, l0w);
+        acc_ntm.add_feature(f_cap_ntm, l0w);
+    }
+
+    // Undo en passant
+    if (mv.MoveFlag() == Move::enPassantCaptureFlag) {
+        // The captured pawn is behind the target square in the direction of the moving pawn
+        int cap_sq = mv.TargetSquare() + (piece_color == 0 ? -8 : 8); 
+        int cap_color = other_color(piece_color); // captured pawn color
+
+        int f_cap_stm = feature_index_stm_halfka(cap_sq, pawn, cap_color, w_king_sq);
+        int f_cap_ntm = feature_index_ntm_halfka(cap_sq, pawn, cap_color, b_king_sq);
+
+        acc_stm.add_feature(f_cap_stm, l0w);
+        acc_ntm.add_feature(f_cap_ntm, l0w);
+    }
+
+
+    // Undo castling rook
+    if (mv.MoveFlag() == Move::castleFlag) {
+        int rank = (piece_color == 0 ? 0 : 7);
+        int rook_from = (mv.TargetSquare() % 8 == 6 ? rank*8 + 7 : rank*8);
+        int rook_to   = (mv.TargetSquare() % 8 == 6 ? rank*8 + 5 : rank*8 + 3);
+        int f_r_from_stm = feature_index_stm_halfka(rook_from, rook, piece_color, w_king_sq);
+        int f_r_to_stm   = feature_index_stm_halfka(rook_to,   rook, piece_color, w_king_sq);
+        int f_r_from_ntm = feature_index_ntm_halfka(rook_from, rook, piece_color, b_king_sq);
+        int f_r_to_ntm   = feature_index_ntm_halfka(rook_to,   rook, piece_color, b_king_sq);
+
+        //std::cout << "  Castling rook: from=" << rook_from << " to=" << rook_to
+        //          << " f_stm_from=" << f_r_from_stm << " f_stm_to=" << f_r_to_stm << "\n";
+
+        acc_stm.remove_feature(f_r_to_stm, l0w);
+        acc_stm.add_feature(f_r_from_stm, l0w);
+        acc_ntm.remove_feature(f_r_to_ntm, l0w);
+        acc_ntm.add_feature(f_r_from_ntm, l0w);
+    }
+}
 
 // ============================================================
 // Debug helpers

@@ -192,6 +192,9 @@ public:
         int move_order
     );
 
+    // ----- nnue helpers -----
+    void perform_move(Board& board, const Move& move, const bool is_halfka, const bool is_king_move);
+    void perform_unmove(Board& board, const Move& move, const bool is_halfka, const bool is_king_move);
 };
 
 #endif // SEARCHER_H
