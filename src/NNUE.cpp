@@ -83,14 +83,14 @@ void NNUE::build_accumulators(const Board& b) {
     //acc_ntm.dump_active_features("build_ntm");
 }
 
-void NNUE::build_halfka_accumulators(const Board& b) {
-    int w_king_sq = b.kingSquare(0);
-    int b_king_sq = b.kingSquare(1);
+void NNUE::build_halfka_accumulators(const Board& b, const bool is_white_move) {
+    int side_color = is_white_move ? 0 : 1;
+    Accumulator& acc = (side_color == 0) ? acc_stm : acc_ntm;
+    int king_sq = b.kingSquare(side_color);
+    U64 bb = b.colorBitboards[side_color];
 
-    acc_stm.init_bias(l0b);
-    acc_ntm.init_bias(l0b);
+    acc.init_bias(l0b);
 
-    U64 bb = b.colorBitboards[0] | b.colorBitboards[1];
     int sq_idx;
     int pc; int pc_c;
 
@@ -101,8 +101,12 @@ void NNUE::build_halfka_accumulators(const Board& b) {
         pc = b.getMovedPiece(sq_idx);
         pc_c = b.getSideAt(sq_idx);
 
-        acc_stm.add_feature(feature_index_stm_halfka(sq_idx, pc, pc_c, w_king_sq), l0w);
-        acc_ntm.add_feature(feature_index_ntm_halfka(sq_idx, pc, pc_c, b_king_sq), l0w);
+        acc.add_feature(
+            side_color == 0 
+                ? feature_index_stm_halfka(sq_idx, pc, pc_c, king_sq)
+                : feature_index_ntm_halfka(sq_idx, pc, pc_c, king_sq)
+            , l0w
+        );
     }
 
     //acc_stm.dump_active_features("build_stm");
