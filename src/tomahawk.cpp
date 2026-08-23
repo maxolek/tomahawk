@@ -85,7 +85,7 @@ int main() {
     Magics::initPEXTMagics(); //initMagics();
 
     // engine
-    Engine engine;
+    static Engine engine;
     UCI uci(engine);
 
     // uci loop

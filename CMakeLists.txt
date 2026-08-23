@@ -83,6 +83,8 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(tomahawk PRIVATE
         -O0
         -g
+        -mbmi2
+        -mavx2
         -fno-optimize-sibling-calls
     )
     target_compile_definitions(tomahawk PRIVATE DEBUG)
@@ -92,6 +94,8 @@ elseif (CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     target_compile_options(tomahawk PRIVATE
         -O1
         -g
+        -mbmi2
+        -mavx2  
     )
 
 # ASAN
@@ -99,6 +103,8 @@ elseif (CMAKE_BUILD_TYPE STREQUAL "Asan")
     target_compile_options(tomahawk PRIVATE 
         -O1
         -g
+        -mbmi2
+        -mavx2
         -fsanitize=address,undefined
         -fno-omit-frame-pointer
     )
