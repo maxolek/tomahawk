@@ -272,7 +272,7 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
 int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                       std::vector<Move>& previousPV, SearchLimits& limits, int ply, 
                       bool can_nmp) {
-    int static_eval;
+    int static_eval = nnue.eval_simd(board.is_white_move);
     int  f_prune = 0; // flag for futility pruning
     bool is_king_move = false;
     #ifdef DEV
@@ -352,7 +352,6 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         && !board.is_in_check
         && beta < MATE_SCORE - 100
     ) {
-        static_eval = nnue.eval_simd(board.is_white_move);
         int eval_margin = depth * params.REVERSE_FUTILITY_PRUNE_THRESHOLD;
 
         if (static_eval - eval_margin >= beta) {
@@ -385,8 +384,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         )
         && 
         // static eval > beta (use cached if available)
-        ((static_eval ? static_eval : nnue.eval_simd(board.is_white_move)
-         ) > beta)
+        (static_eval > beta)
     ) {
         #ifdef DEV
             ScopedTimer timer(T_NMP_SEARCH);
@@ -440,8 +438,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         && !(alpha-beta > 1)
         && !in_check
         && abs(alpha) < 9000
-        && ((static_eval ? static_eval : nnue.eval_simd(board.is_white_move)) 
-                + (depth * params.FUTILITY_PRUNE_MARGIN) <= alpha)
+        && (static_eval + (depth * params.FUTILITY_PRUNE_MARGIN) <= alpha)
     )
         f_prune = 1;
     
@@ -772,8 +769,7 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
 
     // Build NNUE accumulators for root position
     //nnue.build_accumulators(board);
-    nnue.build_halfka_accumulators(board, true);
-    nnue.build_halfka_accumulators(board, false);
+    nnue.build_halfka_accumulators(board);
 
     // --- iterative deepening loop ---
     while (!limits.should_stop(depth)) {
@@ -885,7 +881,7 @@ void Searcher::perform_move(Board& board, const Move& move, const bool is_halfka
 
     if (!needs_refresh) nnue.on_make_move_halfka(board, move);
     board.MakeMove(move);
-    if (needs_refresh) nnue.build_halfka_accumulators(board, !board.is_white_move); // ! since move was just performed so STM changed
+    if (needs_refresh) nnue.build_halfka_accumulators(board); // ! since move was just performed so STM changed
 }
 void Searcher::perform_unmove(Board& board, const Move& move, const bool is_halfka, const bool is_king_move) {
     bool needs_refresh = is_halfka && is_king_move;
@@ -894,5 +890,5 @@ void Searcher::perform_unmove(Board& board, const Move& move, const bool is_half
 
     if (!needs_refresh) nnue.on_unmake_move_halfka(board, move);
     board.UnmakeMove(move);
-    if (needs_refresh) nnue.build_halfka_accumulators(board, board.is_white_move); // STM is back to original after unmake
+    if (needs_refresh) nnue.build_halfka_accumulators(board); // STM is back to original after unmake
 }
