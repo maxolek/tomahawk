@@ -193,8 +193,9 @@ public:
     );
 
     // ----- nnue helpers -----
-    void perform_move(Board& board, const Move& move, const bool is_halfka, const bool is_king_move);
-    void perform_unmove(Board& board, const Move& move, const bool is_halfka, const bool is_king_move);
+    bool update_kings(const bool& is_king_move, const Move& move);
+    void perform_move(Board& board, const Move& move, const bool update_kings);
+    void perform_unmove(Board& board, const Move& move, const bool update_kings);
 };
 
 #endif // SEARCHER_H

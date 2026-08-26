@@ -2,9 +2,11 @@
 #include <vector>
 #include <cstdint>
 #include <string>
-//#ifndef NDEBUG
-#include <unordered_set>
-//#endif
+
+#ifndef NDEBUG
+    #include <unordered_set>
+#endif
+
 #include "board.h"
 #include "move.h"
 #include "stats.h"
@@ -16,6 +18,7 @@
 
 // bucketing
 constexpr int NUM_INPUT_BUCKETS = 10;
+constexpr int NUM_OUTPUT_BUCKETS = 8;
 constexpr int FILE_GROUP[8] = {0, 1, 2, 3, 3, 2, 1, 0};
 constexpr int BUCKET_LAYOUT[32] = {
     0, 1, 2, 3,
@@ -37,30 +40,48 @@ constexpr int QB = 64;
 constexpr int SCALE = 400;
 
 // ============================================================
+// external exposure funcs +++ helpera
+// ============================================================
+
+inline int other_color(int c) { return c ^ 1; }
+
+
+inline int mirrored_flip(int king_sq) {
+    return (king_sq % 8 > 3) ? 7 : 0;
+}
+
+inline int mirrored_bucket(int king_sq) {
+    const int rank = king_sq / 8;
+    const int file_group = FILE_GROUP[king_sq % 8];
+
+    return BUCKET_LAYOUT[rank * 4 + file_group];
+}
+
+// ============================================================
 // Accumulator: holds hidden activations BEFORE SCReLU
 // ============================================================
 struct Accumulator {
     int32_t vals[HIDDEN_SIZE];   // pre-activation
-    std::unordered_set<int> active_features;
+    //std::unordered_set<int> active_features;
 
     void init_bias(const int16_t* bias) {
         for (int i = 0; i < HIDDEN_SIZE; i++)
             vals[i] = bias[i];
-        active_features.clear();
+        //active_features.clear();
     }
 
     inline void add_feature(int feature_idx, int16_t (*W)[HIDDEN_SIZE]) {
         const int16_t* col = W[feature_idx];
         for (int i = 0; i < HIDDEN_SIZE; i++)
             vals[i] += col[i];
-        active_features.insert(feature_idx);
+        //active_features.insert(feature_idx);
     }
 
     inline void remove_feature(int feature_idx, int16_t (*W)[HIDDEN_SIZE]) {
         const int16_t* col = W[feature_idx];
         for (int i = 0; i < HIDDEN_SIZE; i++)
             vals[i] -= col[i];
-        active_features.erase(feature_idx);
+        //active_features.erase(feature_idx);
     }
 
     /*

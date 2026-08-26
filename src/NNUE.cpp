@@ -5,11 +5,6 @@
 #include <set>
 #include <string>
 
-// ============================================================
-// Helpers
-// ============================================================
-
-inline int other_color(int c) { return c ^ 1; }
 
 // ============================================================
 // ChessBucketsMirrored / 768x32hm
@@ -27,27 +22,15 @@ inline int other_color(int c) { return c ^ 1; }
 // Chess768 numbering used before
 // ============================================================
 
-inline int mirrored_bucket(int king_sq) {
-    const int rank = king_sq / 8;
-    const int file_group = FILE_GROUP[king_sq % 8];
-
-    return BUCKET_LAYOUT[rank * 4 + file_group];
-}
-
-inline int mirrored_flip(int king_sq) {
-    return (king_sq % 8 > 3) ? 7 : 0;
-}
 
 inline int feature_index_stm_halfka(
     int sq,
     int piece,
     int color,
-    int king_sq
+    int base,
+    int flip
 ) {
-    const int bucket = mirrored_bucket(king_sq);
-    const int flip   = mirrored_flip(king_sq);
-
-    return bucket * 768
+    return base
          + (color == 0 ? 0 : 384)
          + piece * 64
          + (sq ^ flip);
@@ -57,13 +40,10 @@ inline int feature_index_ntm_halfka(
     int sq,
     int piece,
     int color,
-    int king_sq
+    int base,
+    int flip
 ) {
-    const int nb_king_sq = king_sq ^ 56;          // normalize to black's own perspective first
-    const int bucket = mirrored_bucket(nb_king_sq);
-    const int flip   = mirrored_flip(nb_king_sq);
-
-    return bucket * 768
+    return base
          + (color == 0 ? 384 : 0)
          + piece * 64
          + ((sq ^ 56) ^ flip);
@@ -178,14 +158,11 @@ void NNUE::build_halfka_accumulators(const Board& b) {
     acc_stm.init_bias(l0b);
     acc_ntm.init_bias(l0b);
 
-    //std::cerr << "\nINITIAL STM: ";
-    //for (int i = 0; i < 8; ++i)
-    //    std::cerr << acc_stm.vals[i] << ' ';
-    //std::cerr << "\n";
-
     U64 bb = b.colorBitboards[0] | b.colorBitboards[1];
-
-    int count = 0;
+    const int base_stm = mirrored_bucket(w_king_sq) * 768;
+    const int base_ntm = mirrored_bucket(b_king_sq ^ 56) * 768;
+    const int flip_stm = mirrored_flip(w_king_sq);
+    const int flip_ntm = mirrored_flip(b_king_sq ^ 56);
 
     while (bb) {
         int sq_idx = getLSB(bb);
@@ -194,121 +171,14 @@ void NNUE::build_halfka_accumulators(const Board& b) {
         int pc   = b.getMovedPiece(sq_idx);
         int pc_c = b.getSideAt(sq_idx);
 
-        int stm_f = feature_index_stm_halfka(sq_idx, pc, pc_c, w_king_sq);
-        int ntm_f = feature_index_ntm_halfka(sq_idx, pc, pc_c, b_king_sq);
-
-        /*
-        std::cerr
-            << "piece " << count
-            << " sq=" << sq_idx
-            << " pc=" << pc
-            << " color=" << pc_c
-            << " stm_f=" << stm_f
-            << " ntm_f=" << ntm_f
-            << "\n w_ksq=" << w_king_sq 
-            << " w_k rank=" << w_king_sq / 8
-            << " w_k file_group=" << FILE_GROUP[w_king_sq % 8]
-            << " w_k bucket=" << BUCKET_LAYOUT[(w_king_sq / 8) * 4 + FILE_GROUP[w_king_sq % 8]]
-            << "\n b_ksq=" << b_king_sq 
-            << " b_k rank=" << b_king_sq / 8
-            << " b_k file_group=" << FILE_GROUP[b_king_sq % 8]
-            << " b_k bucket=" << BUCKET_LAYOUT[(b_king_sq / 8) * 4 + FILE_GROUP[b_king_sq % 8]]
-            << " "
-           << "\n";
-        */
-        //assert(stm_f >= 0 && stm_f < INPUT_SIZE);
-        //assert(ntm_f >= 0 && ntm_f < INPUT_SIZE);
+        int stm_f = feature_index_stm_halfka(sq_idx, pc, pc_c, base_stm, flip_stm);
+        int ntm_f = feature_index_ntm_halfka(sq_idx, pc, pc_c, base_ntm, flip_ntm);
 
         acc_stm.add_feature(stm_f, l0w);
         acc_ntm.add_feature(ntm_f, l0w);
 
-        //std::cerr << "  stm first8: ";
-        //for (int i = 0; i < 8; ++i)
-        //    std::cerr << acc_stm.vals[i] << ' ';
-
-        //std::cerr << "\n  ntm first8: ";
-        //for (int i = 0; i < 8; ++i)
-        //    std::cerr << acc_ntm.vals[i] << ' ';
-
-        //std::cerr << "\n";
-
-        ++count;
     }
 
-    // ============================================================
-    // DEBUG: full accumulator contents
-    // ============================================================
-    /*
-    std::cerr << "\n=== HALFKA BUILD DEBUG ===\n";
-    std::cerr << "pieces = " << count << "\n";
-
-    std::cerr << "STM first 16: ";
-    for (int i = 0; i < 16; ++i)
-        std::cerr << acc_stm.vals[i] << ' ';
-    std::cerr << "\n";
-
-    std::cerr << "NTM first 16: ";
-    for (int i = 0; i < 16; ++i)
-        std::cerr << acc_ntm.vals[i] << ' ';
-    std::cerr << "\n";
-
-    std::cerr << "STM active features:\n";
-    for (int f : acc_stm.active_features)
-        std::cerr << "  " << f << '\n';
-
-    std::cerr << "NTM active features:\n";
-    for (int f : acc_ntm.active_features)
-        std::cerr << "  " << f << '\n';
-
-    std::cerr << "===========================\n";
-
-    int stm_active = 0;
-    int ntm_active = 0;
-    int stm_sum = 0;
-    int ntm_sum = 0;
-
-    for (int i = 0; i < HIDDEN_SIZE; ++i) {
-        int s = screlu(acc_stm.vals[i]);
-        int n = screlu(acc_ntm.vals[i]);
-
-        if (s) ++stm_active;
-        if (n) ++ntm_active;
-
-        stm_sum += s;
-        ntm_sum += n;
-    }
-    */
-
-    //std::cerr << "\nAFTER BUILD:\n";
-    //std::cerr << "STM active=" << stm_active
-    //          << " screlu_sum=" << stm_sum << "\n";
-    //std::cerr << "NTM active=" << ntm_active
-    //          << " screlu_sum=" << ntm_sum << "\n";
-
-    //std::cerr << "STM positive neurons:\n";
-    //for (int i = 0; i < HIDDEN_SIZE; ++i) {
-    //    if (acc_stm.vals[i] > 0)
-    //        std::cerr << i << ":" << acc_stm.vals[i] << " ";
-    //}
-    //std::cerr << "\n";
-
-    //std::cerr << "NTM positive neurons:\n";
-    //for (int i = 0; i < HIDDEN_SIZE; ++i) {
-    //    if (acc_ntm.vals[i] > 0)
-    //        std::cerr << i << ":" << acc_ntm.vals[i] << " ";
-    //}
-    //std::cerr << "\n";
-
-    //int64_t raw = 0;
-
-    //for (int i = 0; i < HIDDEN_SIZE; ++i) {
-    //    raw += (int64_t)screlu(acc_stm.vals[i]) * l1w[i];
-    //    raw += (int64_t)screlu(acc_ntm.vals[i]) * l1w[HIDDEN_SIZE + i];
-    //}
-
-    //std::cerr << "RAW DOT AFTER BUILD = " << raw << "\n";
-
-    //    std::cerr << "features=" << count << "\n";
 }
 // ============================================================
 // Evaluation
@@ -400,31 +270,6 @@ int NNUE::eval_simd(bool is_white_move) {
         __m256i us_even = _mm256_mul_epi32(us_sq, us_w);
         __m256i them_even = _mm256_mul_epi32(them_sq, them_w);
 
-        /*  DEBUGGING
-        alignas(32) int64_t simd_us_even[4];
-        _mm256_store_si256(
-            reinterpret_cast<__m256i*>(simd_us_even),
-            us_even
-        );
-        for (int j = 0; j < 4; ++j) {
-            int idx = i + j * 2;
-
-            int64_t expected =
-                (int64_t)screlu(us[idx]) * l1w[idx];
-
-            if (simd_us_even[j] != expected) {
-                std::cerr
-                    << "US EVEN MISMATCH"
-                    << " idx=" << idx
-                    << " acc=" << us[idx]
-                    << " weight=" << l1w[idx]
-                    << " scalar=" << expected
-                    << " simd=" << simd_us_even[j]
-                    << "\n";
-            }
-        }
-        */
-
         sum = _mm256_add_epi64(sum, us_even);
         sum = _mm256_add_epi64(sum, them_even);
 
@@ -464,21 +309,6 @@ int NNUE::eval_simd(bool is_white_move) {
     // Match scalar evaluate() exactly
     // ------------------------------------------------------------
 
-    /*  DEBUGGING 
-    int64_t scalar_total = 0;
-    for (int i = 0; i < HIDDEN_SIZE; ++i) {
-        scalar_total += (int64_t)screlu(us[i]) * (int32_t)l1w[i];
-        scalar_total += (int64_t)screlu(them[i]) * (int32_t)l1w[HIDDEN_SIZE + i];
-    }
-    if (total != scalar_total) {
-        std::cerr << "\n[SIMD DOT PRODUCT MISMATCH]"
-                << "\nscalar = " << scalar_total
-                << "\nsimd   = " << total
-                << "\ndiff   = " << (total - scalar_total)
-                << "\n";
-    }
-    */
-
     int64_t out64 = total;
 
     out64 /= (int64_t)QA;
@@ -516,11 +346,16 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
     int w_king_sq = before.kingSquare(true);
     int b_king_sq = before.kingSquare(false);
 
+    const int base_stm = mirrored_bucket(w_king_sq) * 768;
+    const int base_ntm = mirrored_bucket(b_king_sq ^ 56) * 768;
+    const int flip_stm = mirrored_flip(w_king_sq);
+    const int flip_ntm = mirrored_flip(b_king_sq ^ 56);
+
     // Feature indices for moved piece (both accumulators)
-    int f_from_stm = feature_index_stm_halfka(mv.StartSquare(), moved_piece, piece_color, w_king_sq);
-    int f_to_stm   = feature_index_stm_halfka(mv.TargetSquare(), moved_piece, piece_color, w_king_sq);
-    int f_from_ntm = feature_index_ntm_halfka(mv.StartSquare(), moved_piece, piece_color, b_king_sq);
-    int f_to_ntm   = feature_index_ntm_halfka(mv.TargetSquare(), moved_piece, piece_color, b_king_sq);
+    int f_from_stm = feature_index_stm_halfka(mv.StartSquare(), moved_piece, piece_color, base_stm, flip_stm);
+    int f_to_stm   = feature_index_stm_halfka(mv.TargetSquare(), moved_piece, piece_color, base_stm, flip_stm);
+    int f_from_ntm = feature_index_ntm_halfka(mv.StartSquare(), moved_piece, piece_color, base_ntm, flip_ntm);
+    int f_to_ntm   = feature_index_ntm_halfka(mv.TargetSquare(), moved_piece, piece_color, base_ntm, flip_ntm);
 
     // ---- Update both POV accumulators for the moved piece ----
     acc_stm.remove_feature(f_from_stm, l0w);
@@ -532,8 +367,8 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
     // Promotion: replace pawn feature with promoted piece (both POVs)
     if (promo) {
         int promo_piece = mv.PromotionPieceType();
-        int f_promo_stm = feature_index_stm_halfka(mv.TargetSquare(), promo_piece, piece_color, w_king_sq);
-        int f_promo_ntm = feature_index_ntm_halfka(mv.TargetSquare(), promo_piece, piece_color, b_king_sq);
+        int f_promo_stm = feature_index_stm_halfka(mv.TargetSquare(), promo_piece, piece_color, base_stm, flip_stm);
+        int f_promo_ntm = feature_index_ntm_halfka(mv.TargetSquare(), promo_piece, piece_color, base_ntm, flip_ntm);
 
         // remove pawn entry we just added, then add promoted piece
         acc_stm.remove_feature(f_to_stm, l0w);
@@ -548,8 +383,8 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
     if (captured_piece != -1 && mv.MoveFlag() != Move::enPassantCaptureFlag) {
         // actual color of captured piece (should equal ntm but use board for safety)
         int cap_color = other_color(piece_color);
-        int f_cap_ntm = feature_index_ntm_halfka(mv.TargetSquare(), captured_piece, cap_color, b_king_sq);
-        int f_cap_stm = feature_index_stm_halfka(mv.TargetSquare(), captured_piece, cap_color, w_king_sq);
+        int f_cap_ntm = feature_index_ntm_halfka(mv.TargetSquare(), captured_piece, cap_color, base_ntm, flip_ntm);
+        int f_cap_stm = feature_index_stm_halfka(mv.TargetSquare(), captured_piece, cap_color, base_stm, flip_stm);
         acc_ntm.remove_feature(f_cap_ntm, l0w);
         acc_stm.remove_feature(f_cap_stm, l0w);
     }
@@ -558,8 +393,8 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
     if (mv.MoveFlag() == Move::enPassantCaptureFlag) {
         int cap_sq = mv.TargetSquare() + (piece_color == 0 ? -8 : 8);
         int cap_color = other_color(piece_color);
-        int f_cap_ntm = feature_index_ntm_halfka(cap_sq, pawn, cap_color, b_king_sq);
-        int f_cap_stm = feature_index_stm_halfka(cap_sq, pawn, cap_color, w_king_sq);
+        int f_cap_ntm = feature_index_ntm_halfka(cap_sq, pawn, cap_color, base_ntm, flip_ntm);
+        int f_cap_stm = feature_index_stm_halfka(cap_sq, pawn, cap_color, base_stm, flip_stm);
         acc_ntm.remove_feature(f_cap_ntm, l0w);
         acc_stm.remove_feature(f_cap_stm, l0w);
     }
@@ -570,10 +405,10 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
         int rook_from = (mv.TargetSquare() % 8 == 6 ? rank*8 + 7 : rank*8);
         int rook_to   = (mv.TargetSquare() % 8 == 6 ? rank*8 + 5 : rank*8 + 3);
 
-        int f_r_from_stm = feature_index_stm_halfka(rook_from, rook, piece_color, w_king_sq);
-        int f_r_to_stm   = feature_index_stm_halfka(rook_to,   rook, piece_color, w_king_sq);
-        int f_r_from_ntm = feature_index_ntm_halfka(rook_from, rook, piece_color, b_king_sq);
-        int f_r_to_ntm   = feature_index_ntm_halfka(rook_to,   rook, piece_color, b_king_sq);
+        int f_r_from_stm = feature_index_stm_halfka(rook_from, rook, piece_color, base_stm, flip_stm);
+        int f_r_to_stm   = feature_index_stm_halfka(rook_to,   rook, piece_color, base_stm, flip_stm);
+        int f_r_from_ntm = feature_index_ntm_halfka(rook_from, rook, piece_color, base_ntm, flip_ntm);
+        int f_r_to_ntm   = feature_index_ntm_halfka(rook_to,   rook, piece_color, base_ntm, flip_ntm);
 
         acc_stm.remove_feature(f_r_from_stm, l0w);
         acc_stm.add_feature(f_r_to_stm, l0w);
@@ -606,10 +441,15 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
     int w_king_sq = board.kingSquare(true);
     int b_king_sq = board.kingSquare(false);
 
-    int f_to_stm   = feature_index_stm_halfka(mv.TargetSquare(), moved_piece, piece_color, w_king_sq);
-    int f_from_stm = feature_index_stm_halfka(mv.StartSquare(), moved_piece, piece_color, w_king_sq);
-    int f_to_ntm   = feature_index_ntm_halfka(mv.TargetSquare(), moved_piece, piece_color, b_king_sq);
-    int f_from_ntm = feature_index_ntm_halfka(mv.StartSquare(), moved_piece, piece_color, b_king_sq);
+    const int base_stm = mirrored_bucket(w_king_sq) * 768;
+    const int base_ntm = mirrored_bucket(b_king_sq ^ 56) * 768;
+    const int flip_stm = mirrored_flip(w_king_sq);
+    const int flip_ntm = mirrored_flip(b_king_sq ^ 56);
+
+    int f_to_stm   = feature_index_stm_halfka(mv.TargetSquare(), moved_piece, piece_color, base_stm, flip_stm);
+    int f_from_stm = feature_index_stm_halfka(mv.StartSquare(), moved_piece, piece_color, base_stm, flip_stm);
+    int f_to_ntm   = feature_index_ntm_halfka(mv.TargetSquare(), moved_piece, piece_color, base_ntm, flip_ntm);
+    int f_from_ntm = feature_index_ntm_halfka(mv.StartSquare(), moved_piece, piece_color, base_ntm, flip_ntm);
 
     //std::cout << "[NNUE DEBUG] UNMAKE MOVE " << mv.uci() << "\n";
     //std::cout << "  moved_piece: " << moved_piece
@@ -620,10 +460,10 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
     // Undo promotion
     if (promo) {
         int promo_piece = mv.PromotionPieceType();
-        int f_promo_stm = feature_index_stm_halfka(mv.TargetSquare(), promo_piece, piece_color, w_king_sq);
-        int f_pawn_stm  = feature_index_stm_halfka(mv.StartSquare(), pawn, piece_color, w_king_sq);
-        int f_promo_ntm = feature_index_ntm_halfka(mv.TargetSquare(), promo_piece, piece_color, b_king_sq);
-        int f_pawn_ntm  = feature_index_ntm_halfka(mv.StartSquare(), pawn, piece_color, b_king_sq);
+        int f_promo_stm = feature_index_stm_halfka(mv.TargetSquare(), promo_piece, piece_color, base_stm, flip_stm);
+        int f_pawn_stm  = feature_index_stm_halfka(mv.StartSquare(), pawn, piece_color, base_stm, flip_stm);
+        int f_promo_ntm = feature_index_ntm_halfka(mv.TargetSquare(), promo_piece, piece_color, base_ntm, flip_ntm);
+        int f_pawn_ntm  = feature_index_ntm_halfka(mv.StartSquare(), pawn, piece_color, base_ntm, flip_ntm);
 
         // std::cout << "  Promotion: remove promo " << promo_piece
         //           << " add pawn\n";
@@ -646,8 +486,8 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
     if (captured_piece != -1 && mv.MoveFlag() != Move::enPassantCaptureFlag) {
         int cap_sq = mv.TargetSquare();
         int cap_color = other_color(piece_color); // should be the captured piece color
-        int f_cap_stm = feature_index_stm_halfka(cap_sq, captured_piece, cap_color, w_king_sq);
-        int f_cap_ntm = feature_index_ntm_halfka(cap_sq, captured_piece, cap_color, b_king_sq);
+        int f_cap_stm = feature_index_stm_halfka(cap_sq, captured_piece, cap_color, base_stm, flip_stm);
+        int f_cap_ntm = feature_index_ntm_halfka(cap_sq, captured_piece, cap_color, base_ntm, flip_ntm);
 
         // std::cout << "  Capture: piece=" << captured_piece
         //           << " color=" << cap_color
@@ -665,8 +505,8 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
         int cap_sq = mv.TargetSquare() + (piece_color == 0 ? -8 : 8); 
         int cap_color = other_color(piece_color); // captured pawn color
 
-        int f_cap_stm = feature_index_stm_halfka(cap_sq, pawn, cap_color, w_king_sq);
-        int f_cap_ntm = feature_index_ntm_halfka(cap_sq, pawn, cap_color, b_king_sq);
+        int f_cap_stm = feature_index_stm_halfka(cap_sq, pawn, cap_color, base_stm, flip_stm);
+        int f_cap_ntm = feature_index_ntm_halfka(cap_sq, pawn, cap_color, base_ntm, flip_ntm);
 
         acc_stm.add_feature(f_cap_stm, l0w);
         acc_ntm.add_feature(f_cap_ntm, l0w);
@@ -776,6 +616,7 @@ static void decode_halfka_feature(int f, bool ntm) {
         << "\n";
 }
 
+/*
 static void debug_diff_features_full(const Accumulator& incr,
                                      const Accumulator& full,
                                      const char* label) {
@@ -1229,3 +1070,6 @@ void NNUE::debug_check_features_after_move(const Board& b) {
         abort();
     }
 }
+
+
+*/

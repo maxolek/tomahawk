@@ -231,6 +231,7 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
     int bestEval = standPat;
     Move bestMove = Move::NullMove();
     bool is_king_move = false;
+    bool build_accums = false;
 
     for (int i = 0; i < count; i++) {
         if (limits.out_of_time()) break;
@@ -238,15 +239,16 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
         Move m = moves[i];
         if (shouldPrune(m, standPat, alpha, search_depth, ply)) continue;
         is_king_move = board.getMovedPiece(m.StartSquare()) == king;
+        build_accums = update_kings(is_king_move, m);
 
         // Apply NNUE incremental update then board move
-        perform_move(board, m, true, is_king_move);
+        perform_move(board, m, build_accums);
 
         int score; PV childPV;
         score = -quiescence(-beta, -alpha, childPV, limits, ply+1, depth, search_depth);
 
         // Undo board & NNUE (capture before must be reconstructed from states)
-        perform_unmove(board, m, true, is_king_move);
+        perform_unmove(board, m, build_accums);
 
         if (score >= beta) { 
             #ifdef DEV
@@ -283,6 +285,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
 #endif
     int  f_prune = 0; // flag for futility pruning
     bool is_king_move = false;
+    bool build_accums = false;
     #ifdef DEV
         STATS_NODE(depth+ply, ply); // track node per depth
     #else 
@@ -462,6 +465,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         gives_check = board.givesCheck(m);
         is_capture = board.getCapturedPiece(m.TargetSquare()) != -1;
         is_king_move = board.getMovedPiece(m.StartSquare()) == king;
+        build_accums = update_kings(is_king_move, m);
         
         score = 0; childPV = {}; emptyPV = {};
 
@@ -507,7 +511,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         //}
 
         // Apply NNUE/update & board
-        perform_move(board, m, true, is_king_move);
+        perform_move(board, m, build_accums);
 
         // -----------------------------
         // principal variation search 
@@ -550,7 +554,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         }
 
 
-        perform_unmove(board, m, true, is_king_move);
+        perform_unmove(board, m, build_accums);
 
         if (score > bestEval) {
             bestEval = score;
@@ -605,6 +609,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
     int nodes_before = 0;
     bool exact = false;
     bool is_king_move = false;
+    bool build_accums = false;
 
     // current board state info
     bool in_check = board.is_in_check;
@@ -651,8 +656,9 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
 
             // move type for nnue updates
             is_king_move = board.getMovedPiece(m.StartSquare()) == king;
+            build_accums = update_kings(is_king_move, m);
 
-            perform_move(board, m, true, is_king_move);
+            perform_move(board, m, build_accums);
   
             PV childPV; PV emptyPV; // must be declared per root_move
 
@@ -712,7 +718,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                 }
             }
             
-            perform_unmove(board, m, true, is_king_move);
+            perform_unmove(board, m, build_accums);
 
             #ifdef DEV
                 auto move_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -881,7 +887,31 @@ int Searcher::R_lmr(int depth, int move_order) {
 }
 
 // ----- nnue helpers -----
-void Searcher::perform_move(Board& board, const Move& move, const bool is_halfka, const bool is_king_move) {
+
+bool Searcher::update_kings(const bool& is_king_move, const Move& move) {
+    if (!is_king_move)
+        return false;
+
+    const int old_sq = move.StartSquare();
+    const int new_sq = move.TargetSquare();
+
+    // STM perspective
+    const bool stm_changed =
+        mirrored_bucket(old_sq) != mirrored_bucket(new_sq) ||
+        mirrored_flip(old_sq)   != mirrored_flip(new_sq);
+
+    // NTM perspective
+    const int old_ntm_sq = old_sq ^ 56;
+    const int new_ntm_sq = new_sq ^ 56;
+
+    const bool ntm_changed =
+        mirrored_bucket(old_ntm_sq) != mirrored_bucket(new_ntm_sq) ||
+        mirrored_flip(old_ntm_sq)   != mirrored_flip(new_ntm_sq);
+
+    return stm_changed || ntm_changed;
+}
+
+void Searcher::perform_move(Board& board, const Move& move, const bool update_kings) {
     /*
     if (is_halfka) {
         std::cerr
@@ -900,11 +930,16 @@ void Searcher::perform_move(Board& board, const Move& move, const bool is_halfka
 
     // non-king move : incremental update (pre-board move)
     // king move     : full rebuild (post-board move)
-    if (is_halfka && !is_king_move) nnue.on_make_move_halfka(board, move);
-    board.MakeMove(move);
-    if (is_halfka && is_king_move) nnue.build_halfka_accumulators(board);
+    if (!update_kings) {
+        nnue.on_make_move_halfka(board, move);
+        board.MakeMove(move);
+    }
+    else {
+        board.MakeMove(move);
+        nnue.build_halfka_accumulators(board);
+    }
 }
-void Searcher::perform_unmove(Board& board, const Move& move, const bool is_halfka, const bool is_king_move) {
+void Searcher::perform_unmove(Board& board, const Move& move, const bool update_kings) {
     /*
     if (is_halfka) {
         std::cerr
@@ -923,7 +958,12 @@ void Searcher::perform_unmove(Board& board, const Move& move, const bool is_half
 
     // non-king move : incremental update (pre-board move)
     // king move     : full rebuild (post-board move)
-    if (is_halfka && !is_king_move) nnue.on_unmake_move_halfka(board, move);
-    board.UnmakeMove(move);
-    if (is_halfka && is_king_move) nnue.build_halfka_accumulators(board);
+    if (!update_kings) {
+        nnue.on_unmake_move_halfka(board, move);
+        board.UnmakeMove(move);
+    }
+    else {
+        board.UnmakeMove(move);
+        nnue.build_halfka_accumulators(board);
+    }
 }
