@@ -731,7 +731,6 @@ void Engine::nnueEvalTest() {
 #ifdef _WIN32
     int simd_eval = nnue.eval_simd(search_board.is_white_move);
 #endif
-    if (!search_board.is_white_move) eval = -eval;
 
     std::cout << "=== NNUE Evaluation ===\n";
     std::cout << "NNUE Eval: " << eval << " centipawns\n";
