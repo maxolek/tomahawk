@@ -19,6 +19,8 @@
 // bucketing
 constexpr int NUM_INPUT_BUCKETS = 10;
 constexpr int NUM_OUTPUT_BUCKETS = 8;
+constexpr int OUTPUT_BUCKET_DIVISOR = (32 + NUM_OUTPUT_BUCKETS - 1) / NUM_OUTPUT_BUCKETS;
+
 constexpr int FILE_GROUP[8] = {0, 1, 2, 3, 3, 2, 1, 0};
 constexpr int BUCKET_LAYOUT[32] = {
     0, 1, 2, 3,
@@ -45,7 +47,6 @@ constexpr int SCALE = 400;
 
 inline int other_color(int c) { return c ^ 1; }
 
-
 inline int mirrored_flip(int king_sq) {
     return (king_sq % 8 > 3) ? 7 : 0;
 }
@@ -55,6 +56,10 @@ inline int mirrored_bucket(int king_sq) {
     const int file_group = FILE_GROUP[king_sq % 8];
 
     return BUCKET_LAYOUT[rank * 4 + file_group];
+}
+
+inline int output_bucket(U64 occ) {
+    return (countBits(occ) - 2) / OUTPUT_BUCKET_DIVISOR; // -2 for kings
 }
 
 // ============================================================
@@ -110,8 +115,8 @@ public:
     bool load(const fs::path& path);
 
     // Compute final output from accumulators
-    int evaluate(bool is_white_move); 
-    int eval_simd(bool is_white_move);
+    int evaluate(bool is_white_move, U64 occ); 
+    int eval_simd(bool is_white_move, U64 occ);
     int full_eval(const Board& b);
 
     // Incremental updates for search
@@ -131,8 +136,8 @@ public:
 
     // ========== L1: 2*128 → 1 ==========
     // Dual-perspective: [stm_hidden, ntm_hidden]
-    int16_t l1w[2 * HIDDEN_SIZE];
-    int16_t l1b;
+    int16_t l1w[NUM_OUTPUT_BUCKETS][2 * HIDDEN_SIZE];
+    int16_t l1b[NUM_OUTPUT_BUCKETS];
 
     // Cached accumulators
     // dual perspective

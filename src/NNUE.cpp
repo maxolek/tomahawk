@@ -127,23 +127,6 @@ bool NNUE::load(const fs::path& path) {
     // L1 bias
     std::memcpy(&l1b, p, sizeof(l1b));
 
-    /*
-    std::cerr << "NNUE: loaded l0b[0..7] =";
-    for (int i = 0; i < 8; ++i)
-        std::cerr << ' ' << l0b[i];
-    std::cerr << "\n";
-
-    std::cerr << "NNUE: loaded l1w[0..7] =";
-    for (int i = 0; i < 8; ++i)
-        std::cerr << ' ' << l1w[i];
-    std::cerr << "\n";
-
-    std::cerr << "NNUE: loaded l0w[0][0..7] =";
-    for (int i = 0; i < 8; ++i)
-        std::cerr << ' ' << l0w[0][i];
-    std::cerr << "\n";
-    */
-
     return true;
 }
 
@@ -184,7 +167,7 @@ void NNUE::build_halfka_accumulators(const Board& b) {
 // Evaluation
 // ============================================================
 
-int NNUE::evaluate(bool is_white_move) {
+int NNUE::evaluate(bool is_white_move, U64 occ) {
     #ifdef DEV
         ScopedTimer timer(T_NNUE);
     #endif
@@ -193,14 +176,18 @@ int NNUE::evaluate(bool is_white_move) {
     Accumulator* us = is_white_move ? &acc_stm : &acc_ntm;
     Accumulator* them = is_white_move ? &acc_ntm : &acc_stm;
 
+    const int bucket = output_bucket(occ);
+    const int16_t* weights = l1w[bucket];
+    const int32_t bias = l1b[bucket];
+
     // activate, then multiple by weight and add to output (node)
     for (int i = 0; i < HIDDEN_SIZE; ++i)
-        out64 += (int64_t)screlu(us->vals[i]) * (int32_t)l1w[i];
+        out64 += (int64_t)screlu(us->vals[i]) * (int32_t)weights[i];
     for (int i = 0; i < HIDDEN_SIZE; ++i)
-        out64 += (int64_t)screlu(them->vals[i]) * (int32_t)l1w[HIDDEN_SIZE + i];
+        out64 += (int64_t)screlu(them->vals[i]) * (int32_t)weights[HIDDEN_SIZE + i];
 
     out64 /= (int64_t)QA;
-    out64 += (int64_t)l1b;
+    out64 += (int64_t)bias;
     out64 *= SCALE;
     out64 /= (int64_t)(QA * QB);
 
@@ -214,7 +201,7 @@ int NNUE::evaluate(bool is_white_move) {
 
 #ifdef _WIN32
 // lizard screlu
-int NNUE::eval_simd(bool is_white_move) {
+int NNUE::eval_simd(bool is_white_move, U64 occ) {
     #ifdef DEV
         ScopedTimer timer(T_NNUE);
     #endif
@@ -224,6 +211,10 @@ int NNUE::eval_simd(bool is_white_move) {
 
     const int32_t* us = is_white_move ? acc_stm.vals : acc_ntm.vals;
     const int32_t* them = is_white_move ? acc_ntm.vals : acc_stm.vals;
+
+    const int bucket = output_bucket(occ);
+    const int16_t* weights = l1w[bucket];
+    const int32_t bias = l1b[bucket];
 
     __m256i sum = _mm256_setzero_si256();
 
@@ -252,10 +243,10 @@ int NNUE::eval_simd(bool is_white_move) {
 
         // Load weights (int16 extended to int32)
         __m128i us_w16 = _mm_loadu_si128(
-            reinterpret_cast<const __m128i*>(l1w + i)
+            reinterpret_cast<const __m128i*>(weights + i)
         );
         __m128i them_w16 = _mm_loadu_si128(
-            reinterpret_cast<const __m128i*>(l1w + HIDDEN_SIZE + i)
+            reinterpret_cast<const __m128i*>(weights + HIDDEN_SIZE + i)
         );
 
         __m256i us_w = _mm256_cvtepi16_epi32(us_w16);
@@ -312,7 +303,7 @@ int NNUE::eval_simd(bool is_white_move) {
     int64_t out64 = total;
 
     out64 /= (int64_t)QA;
-    out64 += (int64_t)l1b;
+    out64 += (int64_t)bias;
     out64 *= SCALE;
     out64 /= (int64_t)(QA * QB);
 
@@ -322,7 +313,10 @@ int NNUE::eval_simd(bool is_white_move) {
 
 int NNUE::full_eval(const Board& b) {
     build_halfka_accumulators(b); // build_accumulators(b);
-    return evaluate(b.is_white_move);
+    return evaluate(
+        b.is_white_move, 
+        (b.colorBitboards[0] | b.colorBitboards[1])
+    );
 }
 
 // ============================================================
@@ -542,8 +536,8 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
 #ifdef _WIN32
 void NNUE::debug_simd(const Board& b) {
     build_halfka_accumulators(b);
-    int eval_scalar = evaluate(b.is_white_move);
-    int _eval_simd = eval_simd(b.is_white_move);
+    int eval_scalar = evaluate(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
+    int _eval_simd = eval_simd(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
 
     if (eval_scalar != _eval_simd) {
         std::cerr << "[NNUE DEBUG] SIMD mismatch: "
