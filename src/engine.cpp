@@ -761,7 +761,7 @@ void Engine::nnueSIMDTest() {
         Board b = Board(fen);
         ++position;
 
-        nnue.build_accumulators(b);
+        nnue.build_halfka_accumulators(b);
         int scalar = nnue.evaluate(b.is_white_move);
         int simd = nnue.eval_simd(b.is_white_move);
 

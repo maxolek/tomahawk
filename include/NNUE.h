@@ -14,11 +14,22 @@
 // Network Dimensions
 // ============================================================
 
-constexpr int INPUT_SIZE  = 768*64;   // Chess768 features 64*12 -- sq*piece*color (+ sq)
-constexpr int HIDDEN_SIZE = 1024;   // Hidden dimension
-
 // bucketing
+constexpr int NUM_INPUT_BUCKETS = 10;
 constexpr int FILE_GROUP[8] = {0, 1, 2, 3, 3, 2, 1, 0};
+constexpr int BUCKET_LAYOUT[32] = {
+    0, 1, 2, 3,
+    4, 4, 5, 5,
+    6, 6, 6, 6,
+    7, 7, 7, 7,
+    8, 8, 8, 8,
+    8, 8, 8, 8,
+    9, 9, 9, 9,
+    9, 9, 9, 9
+};
+
+constexpr int INPUT_SIZE  = 768 * NUM_INPUT_BUCKETS;   // (chessbucketgsmirrored) 10 horizontal king buckets
+constexpr int HIDDEN_SIZE = 1024;   // Hidden dimension
 
 // Quantisation factors used in training
 constexpr int QA = 255;
@@ -28,7 +39,6 @@ constexpr int SCALE = 400;
 // ============================================================
 // Accumulator: holds hidden activations BEFORE SCReLU
 // ============================================================
-
 struct Accumulator {
     int32_t vals[HIDDEN_SIZE];   // pre-activation
     std::unordered_set<int> active_features;
@@ -52,30 +62,6 @@ struct Accumulator {
             vals[i] -= col[i];
         active_features.erase(feature_idx);
     }
-
-    /*
-    inline void get_bucket_and_flip(int king_sq, int& bucket, int& flip) {
-        int file = king_sq % 8;
-        int rank_group = king_sq / 8;
-        flip = (file > 3) ? 7 : 0;
-        bucket = BUCKET_LAYOUT[rank_group * 4 + FILE_GROUP[file]];
-    }
-
-    inline int feature_index_stm(int sq, int piece, int color, int bucket) {
-        int file = white_king_sq % 8;
-        int flip = (file > 3) ? 7 : 0;
-        int sq_m = sq ^ flip;
-        return 768*bucket + (color==0 ? 0:384) + piece*64 + sq_m;
-    }
-
-    inline int feature_index_ntm(int sq, int piece, int color, int bucket) {
-        int black_king_canon = black_king_sq ^ 56;
-        int file = black_king_canon % 8;          // == black_king_sq % 8, ^56 doesn't touch file bits
-        int flip = (file > 3) ? 7 : 0;
-        int sq_m = (sq ^ 56) ^ flip;
-        return 768*bucket + (color==0 ? 384:0) + piece*64 + sq_m;
-    }
-    */
 
     /*
     void dump_active_features(const char* name) const {
@@ -153,8 +139,17 @@ public:
     //void on_make_move_debug(const Board& before, const Move& mv);
     //void on_unmake_move_debug(const Board& board, const Move& mv);
     //int evaluate_debug(bool is_white_move) const;
-    void debug_check_incr_vs_full_after_make(const Board& before, const Move& mv);
-    void debug_check_incr_vs_full_after_unmake(const Board& board_with_move, const Move& mv);
+    void debug_check_incr_vs_full_after_make(
+        const Board& before,
+        const Move& mv,
+        bool is_king_move
+    );
+
+    void debug_check_incr_vs_full_after_unmake(
+        const Board& board_with_move,
+        const Move& mv,
+        bool is_king_move
+    );
     void debug_replay_feature_changes(const Board& before,
                                         const Move& mv,
                                         const Board& after);

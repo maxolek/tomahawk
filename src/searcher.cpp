@@ -882,25 +882,48 @@ int Searcher::R_lmr(int depth, int move_order) {
 
 // ----- nnue helpers -----
 void Searcher::perform_move(Board& board, const Move& move, const bool is_halfka, const bool is_king_move) {
-    /* incremental updates are performed before the board is updated
-       but king moves require a full refresh (due to feature indexing being
-       dependent on king square) so this is done after the board is updated*/
-    bool needs_refresh = is_halfka && is_king_move;
+    /*
+    if (is_halfka) {
+        std::cerr
+            << "[MAKE] "
+            << move.uci()
+            << " king_move=" << is_king_move
+            << " moved_piece="
+            << board.getMovedPiece(move.StartSquare())
+            << " target="
+            << move.TargetSquare()
+            << "\n";
+            
+            nnue.debug_check_incr_vs_full_after_make(board, move, is_king_move);
+    }
+    */
 
-    nnue.debug_check_incr_vs_full_after_make(board, move);
-
-    if (!needs_refresh) nnue.on_make_move_halfka(board, move);
+    // non-king move : incremental update (pre-board move)
+    // king move     : full rebuild (post-board move)
+    if (is_halfka && !is_king_move) nnue.on_make_move_halfka(board, move);
     board.MakeMove(move);
-    if (needs_refresh) nnue.build_halfka_accumulators(board); // ! since move was just performed so STM changed
+    if (is_halfka && is_king_move) nnue.build_halfka_accumulators(board);
 }
 void Searcher::perform_unmove(Board& board, const Move& move, const bool is_halfka, const bool is_king_move) {
-    bool needs_refresh = is_halfka && is_king_move;
+    /*
+    if (is_halfka) {
+        std::cerr
+            << "[UNMAKE] "
+            << move.uci()
+            << " king_move=" << is_king_move
+            << " moved_piece="
+            << board.getMovedPiece(move.TargetSquare())
+            << " target="
+            << move.TargetSquare()
+            << "\n";
+            
+            nnue.debug_check_incr_vs_full_after_unmake(board, move, is_king_move);
+    }
+    */
 
-    //std::swap(nnue.acc_stm, nnue.acc_ntm); // swap accumulators for next move
-
-    nnue.debug_check_incr_vs_full_after_unmake(board, move);
-
-    if (!needs_refresh) nnue.on_unmake_move_halfka(board, move);
+    // non-king move : incremental update (pre-board move)
+    // king move     : full rebuild (post-board move)
+    if (is_halfka && !is_king_move) nnue.on_unmake_move_halfka(board, move);
     board.UnmakeMove(move);
-    if (needs_refresh) nnue.build_halfka_accumulators(board); // STM is back to original after unmake
+    if (is_halfka && is_king_move) nnue.build_halfka_accumulators(board);
 }
