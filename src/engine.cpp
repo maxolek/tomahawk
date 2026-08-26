@@ -727,9 +727,9 @@ void Engine::nnueEvalTest() {
     //nnue.build_accumulators(search_board);
     nnue.build_halfka_accumulators(search_board);
 
-    int eval = nnue.evaluate(search_board.is_white_move);
+    int eval = nnue.evaluate(search_board.is_white_move, (search_board.colorBitboards[0] | search_board.colorBitboards[1]));
 #ifdef _WIN32
-    int simd_eval = nnue.eval_simd(search_board.is_white_move);
+    int simd_eval = nnue.eval_simd(search_board.is_white_move, (search_board.colorBitboards[0] | search_board.colorBitboards[1]));
 #endif
 
     std::cout << "=== NNUE Evaluation ===\n";
@@ -761,8 +761,8 @@ void Engine::nnueSIMDTest() {
         ++position;
 
         nnue.build_halfka_accumulators(b);
-        int scalar = nnue.evaluate(b.is_white_move);
-        int simd = nnue.eval_simd(b.is_white_move);
+        int scalar = nnue.evaluate(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
+        int simd = nnue.eval_simd(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
 
         if (scalar != simd) {
             ++errors;

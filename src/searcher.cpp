@@ -204,9 +204,9 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
     // Use incremental NNUE output (accumulators must be kept in sync)
     //boardallGameMoves.back().PrintMove();
 #ifdef _WIN32
-    int standPat = nnue.eval_simd(board.is_white_move);
+    int standPat = nnue.eval_simd(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
 #else 
-    int standPat = nnue.evaluate(board.is_white_move);
+    int standPat = nnue.evaluate(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
 #endif
     if (standPat >= beta) return standPat;
     if (standPat > alpha) alpha = standPat;
@@ -279,9 +279,9 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                       std::vector<Move>& previousPV, SearchLimits& limits, int ply, 
                       bool can_nmp) {
 #ifdef _WIN32
-    int static_eval = nnue.eval_simd(board.is_white_move);
+    int static_eval = nnue.eval_simd(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
 #else 
-    int static_eval = nnue.evaluate(board.is_white_move);
+    int static_eval = nnue.evaluate(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
 #endif
     int  f_prune = 0; // flag for futility pruning
     bool is_king_move = false;
