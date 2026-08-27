@@ -70,8 +70,15 @@ struct Accumulator {
     //std::unordered_set<int> active_features;
 
     inline void init_bias(const int16_t* bias) {
-        for (int i = 0; i < HIDDEN_SIZE; i++)
-            vals[i] = bias[i];
+        for (int i = 0; i < HIDDEN_SIZE; i += 8) {
+            __m256i b32 = _mm256_cvtepi16_epi32(
+                _mm_loadu_si128(reinterpret_cast<const __m128i*>(bias + i))
+            );
+            _mm256_storeu_si256(reinterpret_cast<__m256i*>(vals + i), b32);
+        }
+        
+        //for (int i = 0; i < HIDDEN_SIZE; i++)
+        //    vals[i] = bias[i];
         //active_features.clear();
     }
 
