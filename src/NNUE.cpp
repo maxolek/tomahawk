@@ -200,7 +200,7 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
 }
 
 #ifdef _WIN32
-// lizard screlu
+// AVX2 -- 8 int32
 int NNUE::eval_simd(bool is_white_move, U64 occ) {
     #ifdef DEV
         ScopedTimer timer(T_NNUE);
@@ -248,7 +248,6 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
         __m128i them_w16 = _mm_loadu_si128(
             reinterpret_cast<const __m128i*>(weights + HIDDEN_SIZE + i)
         );
-
         __m256i us_w = _mm256_cvtepi16_epi32(us_w16);
         __m256i them_w = _mm256_cvtepi16_epi32(them_w16);
 
@@ -352,11 +351,13 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
     int f_to_ntm   = feature_index_ntm_halfka(mv.TargetSquare(), moved_piece, piece_color, base_ntm, flip_ntm);
 
     // ---- Update both POV accumulators for the moved piece ----
-    acc_stm.remove_feature(f_from_stm, l0w);
-    acc_stm.add_feature(f_to_stm, l0w);
+    //acc_stm.remove_feature(f_from_stm, l0w);
+    //acc_stm.add_feature(f_to_stm, l0w);
+    acc_stm.add_sub_feature(f_to_stm, f_from_stm, l0w);
 
-    acc_ntm.remove_feature(f_from_ntm, l0w);
-    acc_ntm.add_feature(f_to_ntm, l0w);
+    //acc_ntm.remove_feature(f_from_ntm, l0w);
+    //acc_ntm.add_feature(f_to_ntm, l0w);
+    acc_ntm.add_sub_feature(f_to_ntm, f_from_ntm, l0w);
 
     // Promotion: replace pawn feature with promoted piece (both POVs)
     if (promo) {
@@ -365,11 +366,13 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
         int f_promo_ntm = feature_index_ntm_halfka(mv.TargetSquare(), promo_piece, piece_color, base_ntm, flip_ntm);
 
         // remove pawn entry we just added, then add promoted piece
-        acc_stm.remove_feature(f_to_stm, l0w);
-        acc_stm.add_feature(f_promo_stm, l0w);
+        //acc_stm.remove_feature(f_to_stm, l0w);
+        //acc_stm.add_feature(f_promo_stm, l0w);
+        acc_stm.add_sub_feature(f_promo_stm, f_to_stm, l0w);
 
-        acc_ntm.remove_feature(f_to_ntm, l0w);
-        acc_ntm.add_feature(f_promo_ntm, l0w);
+        //acc_ntm.remove_feature(f_to_ntm, l0w);
+        //acc_ntm.add_feature(f_promo_ntm, l0w);
+        acc_ntm.add_sub_feature(f_promo_ntm, f_to_ntm, l0w);
     }
 
     // ---- Captured piece: remove from BOTH accumulators ----
@@ -394,6 +397,7 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
     }
 
     // ---- Castling rook: update both POVs for rook from/to ----
+    /* castling=king_move == full build
     if (mv.MoveFlag() == Move::castleFlag) {
         int rank = (piece_color == 0 ? 0 : 7);
         int rook_from = (mv.TargetSquare() % 8 == 6 ? rank*8 + 7 : rank*8);
@@ -410,6 +414,7 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
         acc_ntm.remove_feature(f_r_from_ntm, l0w);
         acc_ntm.add_feature(f_r_to_ntm, l0w);
     }
+    */
 
     //Board b_after = before; b_after.MakeMove(mv);
     //debug_check_features_after_move(b_after);
