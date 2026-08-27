@@ -228,9 +228,9 @@ void UCI::handleCommand(const std::string& line) {
         dumpSearchStats(); // print collected stats to console for last search
     }
     else if (token == "clear_tt") {
-        std::cout << "Clearing ... " << engine->tt.filledCount << " / " << engine->tt.entriesCount << std::endl;
+        std::cout << "\nClearing ... " << engine->tt.filledCount << " / " << engine->tt.entriesCount << std::endl;
         engine->tt.clear();
-        std::cout << "Cleared!" << std::endl;
+        std::cout << "\nCleared!\n" << std::endl;
     }
     else if (token == "bench") {
         //engine->bench(depth);  // implement bench mode
