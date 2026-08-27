@@ -587,6 +587,12 @@ inline void dumpSearchStats()
     auto row = [&](const std::string& label, auto value, const char* suffix = "") {
         cout << "  " << left << setw(20) << label << right << setw(14) << value << suffix << "\n";
     };
+    auto _pv = [&](const std::vector<Move>) {
+        cout << "  " << left << setw(20) << "PV" << right << setw(14);
+        for (const Move& move : g_stats.principal_variation)
+            cout << move << " ";
+        cout << "\n";
+    };
  
     cout << std::fixed << std::setprecision(2);
  
@@ -601,6 +607,7 @@ inline void dumpSearchStats()
     section("SEARCH");
     row("Best Move", g_stats.move.uci());
     row("Eval", g_stats.eval);
+    _pv(g_stats.principal_variation);
     row("Time (ms)", g_stats.time_ms);
     row("Depth", g_stats.max_depth);
     row("Completed Depth", g_stats.max_completed_depth);

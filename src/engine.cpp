@@ -394,6 +394,7 @@ void Engine::startSearch() {
     // finalize cumulative stats
     g_stats.time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - start_time).count();
+    g_stats.principal_variation = result.best_line.line;
     #ifdef DEV
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - start_time).count();
@@ -401,7 +402,6 @@ void Engine::startSearch() {
         //g_stats.nps = elapsed > 0 ? (1000.0 * g_stats.nodes / elapsed) : 0.0;
         g_stats.eval = result.eval;
         g_stats.move = result.bestMove;
-        g_stats.principal_variation = result.best_line.line;
 
         //g_stats.ebf = pow(double(g_stats.nodes) / 1.0, 1.0 / g_stats.maxDepth); // rough estimate
         //g_stats.qratio = double(g_stats.qnodes) / g_stats.nodes;
