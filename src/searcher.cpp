@@ -180,7 +180,7 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
     if (limits.out_of_time()) return alpha;
 
     // draw detection
-    if (board.isThreefold() || board.currentGameState.fiftyMoveCounter >= 50) {
+    if (board.isThreefold() || board.currentGameState.fiftyMoveCounter >= 100) {
         //tt.store(board.zobrist_hash, depth, ply, 0, EXACT, Move::NullMove());
         return params.DRAW_EVAL;
     }
@@ -295,7 +295,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
 
     // --- end of search conditions ---
 
-    if (board.isThreefold() || board.currentGameState.fiftyMoveCounter >= 50) {
+    if (board.isThreefold() || board.currentGameState.fiftyMoveCounter >= 100) {
         //tt.store(board.zobrist_hash, depth, ply, 0, EXACT, Move::NullMove());
         return params.DRAW_EVAL;
     }

@@ -157,7 +157,7 @@ public:
     // --- Results ---
     bool isCheckmate();
     bool isStalemate();
-    bool isThreefold();
+    //bool isThreefold();
 
     // --- Tests ---
     uint64_t perft(int depth);
