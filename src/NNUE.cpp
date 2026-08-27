@@ -467,17 +467,21 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
         // std::cout << "  Promotion: remove promo " << promo_piece
         //           << " add pawn\n";
 
-        acc_stm.remove_feature(f_promo_stm, l0w);
-        acc_stm.add_feature(f_pawn_stm, l0w);
-        acc_ntm.remove_feature(f_promo_ntm, l0w);
-        acc_ntm.add_feature(f_pawn_ntm, l0w);
+        //acc_stm.remove_feature(f_promo_stm, l0w);
+        //acc_stm.add_feature(f_pawn_stm, l0w);
+        acc_stm.add_sub_feature(f_pawn_stm, f_promo_stm, l0w);
+        //acc_ntm.remove_feature(f_promo_ntm, l0w);
+        //acc_ntm.add_feature(f_pawn_ntm, l0w);
+        acc_ntm.add_sub_feature(f_pawn_ntm, f_promo_ntm, l0w);
     } else {
         // Normal move
         //std::cout << "  Normal: remove to_idx=" << f_to_stm << " add from_idx=" << f_from_stm << "\n";
-        acc_stm.remove_feature(f_to_stm, l0w);
-        acc_stm.add_feature(f_from_stm, l0w);
-        acc_ntm.remove_feature(f_to_ntm, l0w);
-        acc_ntm.add_feature(f_from_ntm, l0w);
+        //acc_stm.remove_feature(f_to_stm, l0w);
+        //acc_stm.add_feature(f_from_stm, l0w);
+        acc_stm.add_sub_feature(f_from_stm, f_to_stm, l0w);
+        //acc_ntm.remove_feature(f_to_ntm, l0w);
+        //acc_ntm.add_feature(f_from_ntm, l0w);
+        acc_ntm.add_sub_feature(f_from_ntm, f_to_ntm, l0w);
     }
 
     // Undo captures
