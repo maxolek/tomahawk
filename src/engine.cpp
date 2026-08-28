@@ -437,6 +437,7 @@ void Engine::sendBestMove(Move best, bool eval, bool ponder) {
     std::cout << std::endl;
 
     game_board.MakeMove(best);
+    search_board.MakeMove(best);
     game_over = checkGameEnd();
 
     if (mode == EngineMode::GAME) {trackGame();}

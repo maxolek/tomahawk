@@ -790,6 +790,8 @@ inline void dumpRootMoves(const SearchResult& result) {
         << std::endl;
     }
     std::cout << "\n" << std::endl;
+    std::cout << "done." << std::endl;
+    std::cout << "\n" << std::endl;
 }
 #endif
 
