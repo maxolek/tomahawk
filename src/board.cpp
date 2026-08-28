@@ -263,8 +263,8 @@ void Board::MakeNullMove() {
     // track history for NMP-tree TT
     // wont plague regular TT since STM is flipped so hash's will never match
     gameStateHistory.push_back(currentGameState);
-    hash_history[zobrist_hash]++;
-    zobrist_history.push_back(zobrist_hash);
+    //hash_history[zobrist_hash]++;
+    //zobrist_history.push_back(zobrist_hash);
     allGameMoves.push_back(Move::NullMove());
     //gameStateHistory.push_back(currentGameState);
 
@@ -276,13 +276,13 @@ void Board::UnmakeNullMove() {
     //ScopedTimer timer(T_UNMAKENULLMOVE);
 
     // undo hash history
-    auto it = hash_history.find(zobrist_hash);
-    if (it != hash_history.end()) {
-        it->second--;
-       if (it->second <= 0)
-            hash_history.erase(it);
-    }
-    zobrist_history.pop_back();
+    //auto it = hash_history.find(zobrist_hash);
+    //if (it != hash_history.end()) {
+    //    it->second--;
+    //   if (it->second <= 0)
+    //        hash_history.erase(it);
+    //}
+    //zobrist_history.pop_back();
 
     // flip STM back
     zobrist_hash ^= zobrist_side_to_move;
