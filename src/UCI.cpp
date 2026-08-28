@@ -227,6 +227,11 @@ void UCI::handleCommand(const std::string& line) {
     else if (token == "dumpstats") {
         dumpSearchStats(); // print collected stats to console for last search
     }
+    #ifdef DEV
+        else if (token == "dumpmoves") {
+            dumpRootMoves(engine->result);
+        }
+    #endif
     else if (token == "clear_tt") {
         std::cout << "\nClearing ... " << engine->tt.filledCount << " / " << engine->tt.entriesCount << std::endl;
         engine->tt.clear();

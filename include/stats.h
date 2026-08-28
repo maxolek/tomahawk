@@ -597,11 +597,7 @@ inline void dumpSearchStats()
     cout << std::fixed << std::setprecision(2);
  
     // ===================== HEADER =====================
-    rule('-');
-    rule('-');
-    cout << "SEARCH STATS\n";
-    rule('-');
-    rule('-');
+    section("SEARCH STATS");
  
     // ===================== SEARCH SUMMARY =====================
     section("SEARCH");
@@ -783,5 +779,18 @@ inline void dumpSearchStats()
     cout << "\n";
 }
 
+#ifdef DEV
+inline void dumpRootMoves(const SearchResult& result) {
+    std::cout << "\n" << std::endl;
+    for (int rm = 0; rm < result.root_count; ++rm) {
+        std::cout << result.root_moves[rm].move 
+                  << "  eval     : " << result.root_moves[rm].eval 
+                  << "  time_ms  : " << result.root_moves[rm].time_ms
+                  << "  nodes    : " << result.root_moves[rm].nodes
+        << std::endl;
+    }
+    std::cout << "\n" << std::endl;
+}
+#endif
 
 #endif // STATS_H
