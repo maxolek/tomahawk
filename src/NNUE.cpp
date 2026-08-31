@@ -145,7 +145,7 @@ bool NNUE::load(const fs::path& path) {
     p += sizeof(l3w);
 
     // L3 bias
-    std::memcpy(l3b, p, sizeof(l3b))
+    std::memcpy(l3b, p, sizeof(l3b));
 
     return true;
 }
@@ -198,11 +198,11 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
     Accumulator* them = is_white_move ? &acc_ntm : &acc_stm;
 
     // pre-set layer array
-    alignas(64) int64_t stm_activated[L0_SIZE];
-    alignas(64) int64_t ntm_activated[L0_SIZE];
-    alignas(64) int32_t l0_pair_mul[L0_SIZE];
-    alignas(64) int32_t l1_out[L1_SIZE];
-    alignas(64) int32_t l2_out[L2_SIZE];
+    int64_t stm_activated[L1_SIZE];
+    int64_t ntm_activated[L1_SIZE];
+    int32_t l0_pair_mul[L1_SIZE];
+    int32_t l2_in[L2_SIZE];
+    int32_t l3_in[L3_SIZE];
 
     // pre-set output bucket
     const int bucket = output_bucket(occ);
@@ -216,61 +216,61 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
     // ===== L1: accumulator --> hidden 1 =====
 
     // output vector loop
-    for (int o = 0; o < L1_SIZE; o++) {
+    for (int o = 0; o < L2_SIZE; o++) {
         int64_t sum = 0;
-        const int16_t* w = &l1_weights[o * L0_SIZE]; // NO PAIRWISE MULTIPLY: 2*LO_SIZE due to concat(dual_perspectives)
+        const int16_t* w = &l1_weights[o * L1_SIZE]; // NO PAIRWISE MULTIPLY: 2*LO_SIZE due to concat(dual_perspectives)
 
         // activate + pairwise multiply
-        for (int i = 0; i < L0_SIZE; i++) {
+        for (int i = 0; i < L1_SIZE; i++) {
             stm_activated[i] = (int64_t)screlu(us->vals[i]);
             ntm_activated[i] = (int64_t)screlu(them->vals[i]);
         }
         l0_pair_mul = pairwise_mul(stm_activated, ntm_activated);
         
         // feed forward to L2 activation (weight multiply, do not activate)
-        for (int i = 0; i < L0_SIZE; i++) 
+        for (int i = 0; i < L1_SIZE; i++) 
             sum += l0_pair_mul * (int32_t)w[i];
 
         // dequantize, add bias, load to output vector
         sum /= (int64_t)QA;
         sum += l1_bias[o];
-        l1_out[o] = (int32_t)sum;
+        l2_in[o] = (int32_t)sum;
     }
 
     // ===== L2: hidden 1 --> hidden 2 =====
 
     // activate (in place)
     // do before to prevent redundant re-computes
-    for (int i = 0; i < L1_SIZE; i++)
-        l1_out[i] = screlu(l1_out[i]);
+    for (int i = 0; i < L2_SIZE; i++)
+        l2_in[i] = screlu(l2_in[i]);
 
     // weight loop
-    for (int o = 0; o < L2_SIZE; o++) {
+    for (int o = 0; o < L3_SIZE; o++) {
         int64_t sum = 0;
         const int16_t* w = &l2_weights[o * L1_SIZE];
 
         // feed activates neurons forward to L3 pre-activation
-        for (int i = 0; i < L1_SIZE; i++)
-            sum += (int64_t)l1_out * (int32_t)w[i];
-        for (int i = 0; i < L1_SIZE; i++) 
-            sum += (int64_t)l1_out * (int32_t)w[i];
+        for (int i = 0; i < L2_SIZE; i++)
+            sum += (int64_t)l2_in * (int32_t)w[i];
+        for (int i = 0; i < L2_SIZE; i++) 
+            sum += (int64_t)l2_in * (int32_t)w[i];
 
         // dequantize, bias, and load
         sum /= (int64_t)QB; 
         sum += l2_bias[o]; 
-        l2_out[o] = (int32_t)sum;
+        l3_in[o] = (int32_t)sum;
     }
 
     // ===== L3: hidden 2 --> output   =====
 
     // activate
-    for (int i = 0; i < L2_SIZE; i++)
-        l2_out[i] = screlu(l2_out[i]);
+    for (int i = 0; i < L3_SIZE; i++)
+        l3_in[i] = screlu(l3_in[i]);
 
     // weight loop
     int64_t out64 = 0;
-    for (int i = 0; i < L2_SIZE; i++) 
-        out64 += (int64_t)l2_out * (int32_t)l3_weights[i];
+    for (int i = 0; i < L3_SIZE; i++) 
+        out64 += (int64_t)l3_in * (int32_t)l3_weights[i];
 
     // dequantize, bias, and output
     out64 += l3_bias;
@@ -287,14 +287,19 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
         ScopedTimer timer(T_NNUE);
     #endif
 
+    // ordering for dual-perspective network
+    // concat( us, them )
+    Accumulator* us = is_white_move ? &acc_stm : &acc_ntm;
+    Accumulator* them = is_white_move ? &acc_ntm : &acc_stm;
+
     // pre-set layer array
-    alignas(32) int16_t us_act[L0_SIZE];
-    alignas(32) int16_t them_act[L0_SIZE];
-    alignas(64) int32_t l0_pair_mul[L0_SIZE];
-    alignas(64) int32_t l1_out[L1_SIZE];
-    alignas(64) int64_t l1_act[L1_SIZE];
-    alignas(64) int32_t l2_out[L2_SIZE];
+    alignas(32) int16_t us_act[L1_SIZE];
+    alignas(32) int16_t them_act[L1_SIZE];
+    alignas(64) int32_t l0_pair_mul[L1_SIZE];
+    alignas(64) int32_t l2_in[L2_SIZE];
     alignas(64) int64_t l2_act[L2_SIZE];
+    alignas(64) int32_t l3_in[L3_SIZE];
+    alignas(64) int64_t l3_act[L3_SIZE];
 
     // pre-set output bucket
     const int bucket = output_bucket(occ);
@@ -308,18 +313,18 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
     // ===== L1: accumulator --> hidden 1 =====
 
     // activate accumulator values
-    activate_screlu(us->vals, us_act, L0_SIZE, QA);
-    activate_screlu(them->vals, them_act, L0_SIZE, QA);
+    activate_screlu(us->vals, us_act, L1_SIZE, QA);
+    activate_screlu(them->vals, them_act, L1_SIZE, QA);
 
     // pairwise multiply
     l0_pair_mul = pairwise_mul_simd(us_act, them_act);
 
     // weight transform
-    for (int o = 0; o < L1_SIZE; o++) {
-        const int16_t* w = &l1_weights[o * L0_SIZE];
+    for (int o = 0; o < L2_SIZE; o++) {
+        const int16_t* w = &l1_weights[o * L1_SIZE];
         __m256i acc = _mm256_setzero_si256();
 
-        for (int i = 0; i < L0_SIZE; i += 16) {
+        for (int i = 0; i < L1_SIZE; i += 16) {
             acc = _mm256_add_epi32(
                     acc, 
                     _mm256_madd_epi16(
@@ -333,16 +338,16 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
         int64_t sum = (int64_t)hsum_epi32(acc);
         sum /= (int64_t)QA;
         sum += l1_bias[o];
-        l1_out[o] = (int32_t)sum;
+        l2_in[o] = (int32_t)sum;
     }
 
     // ===== L2: hidden 1 --> hidden 2 =====
 
     // activate
-    activate_screlu(l1_out, l1_act, L1_SIZE, QA);
+    activate_screlu(l2_in, l2_act, L1_SIZE, QA);
 
     // weight transform
-    for (int o = 0; o < L2_SIZE; o++) {
+    for (int o = 0; o < L3_SIZE; o++) {
         const int16_t* w = &l2_weights[o * L1_SIZE];
         __m256i acc = _mm256_setzero_si256();
 
@@ -350,7 +355,7 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
             acc = _mm256_add_epi32(
                 acc,
                 _mm256_madd_epi16(
-                    _mm256_load_si256((const __m256i*)&l1_act),
+                    _mm256_load_si256((const __m256i*)&l2_act),
                     _mm256_load_si256((const __m256i*)&w[i])
                 )
             );
@@ -358,23 +363,23 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
 
         int64_t sum = (int64_t)hsum_epi32(acc);
         sum += l2_bias[o];
-        l2_out = (int32_t)sum; 
+        l3_in = (int32_t)sum; 
     }
 
     // ===== L3: hidden 2 --> output =====
 
     // activate
-    activate_screlu(l2_out, l2_act, L2_SIZE, QA);
+    activate_screlu(l3_in, l3_act, L2_SIZE, QA);
 
     // weight transform 
     // single output node ... dont need output loop like above
     const int16_t* w = &l3_weights;
     __m256i out64 = _mm256_setzero_si256();
-    for (int i = 0; i < L2_SIZE; i += 8) {
+    for (int i = 0; i < L3_SIZE; i += 8) {
         out64 = _mm256_add_epi64(
                 out64, 
                 _mm256_madd_epi16(
-                    _mm256_load_si256((const __m256i*)&l2_act),
+                    _mm256_load_si256((const __m256i*)&l3_act),
                     _mm256_load_si256((const __m256i*)&w[i])
                 )
         );
