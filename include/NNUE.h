@@ -239,6 +239,67 @@ public:
         return y * y;
     }
 
+    inline std::array<int32_t, L0_SIZE> pairwise_mul(
+        const std::array<int32_t, L0_SIZE>& stm, 
+        const std::array<int32_t, L0_SIZE>& ntm
+    ) {
+        std::array<int32_t, L0_SIZE> result;
+        std::transform(stm.begin(), stm.end(), ntm.begin(), result.begin(), std::multiples<int>());
+        return result
+    }
+
+    // SIMD
+#ifdef _WIN32
+    inline std::array<int32_t, L0_SIZE> pairwise_mul_simd(
+        const std::array<int32_t, L0_SIZE>& stm,
+        const std::array<int32_t, L0_SIZE>& ntm
+    ) {
+        std::array<int32_t, L0_SIZE> result;
+        
+        for (int i = 0; i < L0_SIZE, i+= 8) {
+            // load 8 elements from both arrays
+            __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&stm[i]));
+            __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&ntm[i]));
+
+            // pairwise multiply (lower 32 bits)
+            __m256i vr = _mm256_mullo_epi32(va, vb);
+
+            // store 8 results directly into result
+            _mm256_storeu_si256(reinterpret_cast<__m256i*>(&result[i]), vr);
+        }
+
+        return result;
+    }
+
+    // horizontal sum int32
+    // performs weight multplication
+    inline int32_t hsum_epi32(__m256i v) {
+        __m128i lo = _mm256_castsi256_si128(v);
+        __m128i hi = _mm256_extracti128_si256(v, 1);
+        lo = _mm_add_epi32(lo, hi);
+
+        __m128i shuf = _mm_shuffle_epi32(lo, _MM_SHUFFLE(1, 0, 3, 2));
+        lo = _mm_add_epi32(lo, shuf);
+
+        shuf = _mm_shuffle_epi32(lo, _MM_SHUFFLE(0, 1, 0, 1));
+        lo = _mm_add_epi32(lo, shuf);
+
+        return _mm_cvtsi128_si32(lo);
+    }
+
+    // fold SCRELU into multiply-add
+    inline void activate_screlu(const int16_t* in, int16_t* out, int size, int16_t QA) {
+        const __m256i zero = _mm256_setzero_si256();
+        const __m256i qa   = _mm256_set1_epi16(QA);
+        for (int i = 0; i < size; i += 16) {
+            __m256i v       = _mm256_load_si256((const __m256i*)&in[i]);
+            __m256i clipped = _mm256_min_epi16(_mm256_max_epi16(v, zero), qa);
+            __m256i squared = _mm256_mullo_epi16(clipped, clipped); // safe: QA <= 181
+            _mm256_store_si256((__m256i*)&out[i], squared);
+        }
+    }
+#endif
+
     // debugging
     void debug_simd(const Board& b);
     //void debug_acc(const Accumulator& acc, const std::string& name) const;

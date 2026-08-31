@@ -54,12 +54,12 @@ inline int feature_index_ntm_halfka(
 // effectively the row-major order of the transposed matrix. The C++ side stores
 // the same logical matrix as l0w[input_feature][hidden], so we must reconstruct
 // the feature-major representation from the flat Bullet stream before use.
-static void decode_bullet_l0w(const uint8_t* p, int16_t (*out)[HIDDEN_SIZE]) {
+static void decode_bullet_l0w(const uint8_t* p, int16_t (*out)[L0_SIZE]) {
     const int16_t* flat = reinterpret_cast<const int16_t*>(p);
     for (int feature = 0; feature < INPUT_SIZE; ++feature) {
-        for (int hidden = 0; hidden < HIDDEN_SIZE; ++hidden) {
+        for (int hidden = 0; hidden < L0_SIZE; ++hidden) {
             //out[feature][hidden] = flat[(size_t)hidden * (size_t)INPUT_SIZE + (size_t)feature];
-            out[feature][hidden] = flat[(size_t)feature * (size_t)HIDDEN_SIZE + (size_t)hidden];
+            out[feature][hidden] = flat[(size_t)feature * (size_t)L0_SIZE + (size_t)hidden];
         }
     }
 }
@@ -84,7 +84,11 @@ bool NNUE::load(const fs::path& path) {
         (std::streamoff)sizeof(l0w) +
         (std::streamoff)sizeof(l0b) +
         (std::streamoff)sizeof(l1w) +
-        (std::streamoff)sizeof(l1b);
+        (std::streamoff)sizeof(l1b) +
+        (std::streamoff)sizeof(l2w) + 
+        (std::streamoff)sizeof(l2b) + 
+        (std::streamoff)sizeof(l3w) + 
+        (std::streamoff)sizeof(l3b);
 
     f.seekg(0, std::ios::end);
     const std::streamoff file_size = f.tellg();
@@ -126,6 +130,22 @@ bool NNUE::load(const fs::path& path) {
 
     // L1 bias
     std::memcpy(&l1b, p, sizeof(l1b));
+    p += sizeof(l1b);
+
+    // L2
+    std::memcpy(l2w, p, sizeof(l2w));
+    p += sizeof(l2w);
+
+    // L2 bias
+    std::memcpy(&l2b, p, sizeof(l1b));
+    p += sizeof(l2b);
+
+    // L3 
+    std::memcpy(l3w, p, sizeof(l3w));
+    p += sizeof(l3w);
+
+    // L3 bias
+    std::memcpy(l3b, p, sizeof(l3b))
 
     return true;
 }
@@ -171,32 +191,93 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
     #ifdef DEV
         ScopedTimer timer(T_NNUE);
     #endif
-    int64_t out64 = 0;
 
+    // ordering for dual-perspective network
+    // concat( us, them )
     Accumulator* us = is_white_move ? &acc_stm : &acc_ntm;
     Accumulator* them = is_white_move ? &acc_ntm : &acc_stm;
 
+    // pre-set layer array
+    alignas(64) int64_t stm_activated[L0_SIZE];
+    alignas(64) int64_t ntm_activated[L0_SIZE];
+    alignas(64) int32_t l0_pair_mul[L0_SIZE];
+    alignas(64) int32_t l1_out[L1_SIZE];
+    alignas(64) int32_t l2_out[L2_SIZE];
+
+    // pre-set output bucket
     const int bucket = output_bucket(occ);
-    const int16_t* weights = l1w[bucket];
-    const int32_t bias = l1b[bucket];
+    const int16_t* l1_weights = l1w[bucket];
+    const int32_t l1_bias = l1b[bucket];
+    const int16_t* l2_weights = l2w[bucket];
+    const int32_t l2_bias = l2b[bucket];
+    const int16_t* l3_weights = l3w[bucket];
+    const int32_t l3_bias = l3b[bucket];
 
-    // activate, then multiple by weight and add to output (node)
-    for (int i = 0; i < HIDDEN_SIZE; ++i)
-        out64 += (int64_t)screlu(us->vals[i]) * (int32_t)weights[i];
-    for (int i = 0; i < HIDDEN_SIZE; ++i)
-        out64 += (int64_t)screlu(them->vals[i]) * (int32_t)weights[HIDDEN_SIZE + i];
+    // ===== L1: accumulator --> hidden 1 =====
 
-    out64 /= (int64_t)QA;
-    out64 += (int64_t)bias;
+    // output vector loop
+    for (int o = 0; o < L1_SIZE; o++) {
+        int64_t sum = 0;
+        const int16_t* w = &l1_weights[o * L0_SIZE]; // NO PAIRWISE MULTIPLY: 2*LO_SIZE due to concat(dual_perspectives)
+
+        // activate + pairwise multiply
+        for (int i = 0; i < L0_SIZE; i++) {
+            stm_activated[i] = (int64_t)screlu(us->vals[i]);
+            ntm_activated[i] = (int64_t)screlu(them->vals[i]);
+        }
+        l0_pair_mul = pairwise_mul(stm_activated, ntm_activated);
+        
+        // feed forward to L2 activation (weight multiply, do not activate)
+        for (int i = 0; i < L0_SIZE; i++) 
+            sum += l0_pair_mul * (int32_t)w[i];
+
+        // dequantize, add bias, load to output vector
+        sum /= (int64_t)QA;
+        sum += l1_bias[o];
+        l1_out[o] = (int32_t)sum;
+    }
+
+    // ===== L2: hidden 1 --> hidden 2 =====
+
+    // activate (in place)
+    // do before to prevent redundant re-computes
+    for (int i = 0; i < L1_SIZE; i++)
+        l1_out[i] = screlu(l1_out[i]);
+
+    // weight loop
+    for (int o = 0; o < L2_SIZE; o++) {
+        int64_t sum = 0;
+        const int16_t* w = &l2_weights[o * L1_SIZE];
+
+        // feed activates neurons forward to L3 pre-activation
+        for (int i = 0; i < L1_SIZE; i++)
+            sum += (int64_t)l1_out * (int32_t)w[i];
+        for (int i = 0; i < L1_SIZE; i++) 
+            sum += (int64_t)l1_out * (int32_t)w[i];
+
+        // dequantize, bias, and load
+        sum /= (int64_t)QB; 
+        sum += l2_bias[o]; 
+        l2_out[o] = (int32_t)sum;
+    }
+
+    // ===== L3: hidden 2 --> output   =====
+
+    // activate
+    for (int i = 0; i < L2_SIZE; i++)
+        l2_out[i] = screlu(l2_out[i]);
+
+    // weight loop
+    int64_t out64 = 0;
+    for (int i = 0; i < L2_SIZE; i++) 
+        out64 += (int64_t)l2_out * (int32_t)l3_weights[i];
+
+    // dequantize, bias, and output
+    out64 += l3_bias;
     out64 *= SCALE;
     out64 /= (int64_t)(QA * QB);
 
-    //std::cout << "eval: " << out64 << "\n\n";
-
-    //us->dump_active_features("eval_stm");
-    //them->dump_active_features("eval_ntm");
-
-    return out64; //is_white_move ? out64 : -out64;
+    return out64;
 }
 
 #ifdef _WIN32
@@ -206,6 +287,105 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
         ScopedTimer timer(T_NNUE);
     #endif
 
+    // pre-set layer array
+    alignas(32) int16_t us_act[L0_SIZE];
+    alignas(32) int16_t them_act[L0_SIZE];
+    alignas(64) int32_t l0_pair_mul[L0_SIZE];
+    alignas(64) int32_t l1_out[L1_SIZE];
+    alignas(64) int64_t l1_act[L1_SIZE];
+    alignas(64) int32_t l2_out[L2_SIZE];
+    alignas(64) int64_t l2_act[L2_SIZE];
+
+    // pre-set output bucket
+    const int bucket = output_bucket(occ);
+    const int16_t* l1_weights = l1w[bucket];
+    const int32_t l1_bias = l1b[bucket];
+    const int16_t* l2_weights = l2w[bucket];
+    const int32_t l2_bias = l2b[bucket];
+    const int16_t* l3_weights = l3w[bucket];
+    const int32_t l3_bias = l3b[bucket];
+
+    // ===== L1: accumulator --> hidden 1 =====
+
+    // activate accumulator values
+    activate_screlu(us->vals, us_act, L0_SIZE, QA);
+    activate_screlu(them->vals, them_act, L0_SIZE, QA);
+
+    // pairwise multiply
+    l0_pair_mul = pairwise_mul_simd(us_act, them_act);
+
+    // weight transform
+    for (int o = 0; o < L1_SIZE; o++) {
+        const int16_t* w = &l1_weights[o * L0_SIZE];
+        __m256i acc = _mm256_setzero_si256();
+
+        for (int i = 0; i < L0_SIZE; i += 16) {
+            acc = _mm256_add_epi32(
+                    acc, 
+                    _mm256_madd_epi16(
+                        _mm256_load_si256((const __m256i*)&l0_pair_mul[i]),
+                        _mm256_load_si256((const __m256i*)&w[i])
+                    )
+                );
+        }
+        
+        // create layer nodes (pre-activation)
+        int64_t sum = (int64_t)hsum_epi32(acc);
+        sum /= (int64_t)QA;
+        sum += l1_bias[o];
+        l1_out[o] = (int32_t)sum;
+    }
+
+    // ===== L2: hidden 1 --> hidden 2 =====
+
+    // activate
+    activate_screlu(l1_out, l1_act, L1_SIZE, QA);
+
+    // weight transform
+    for (int o = 0; o < L2_SIZE; o++) {
+        const int16_t* w = &l2_weights[o * L1_SIZE];
+        __m256i acc = _mm256_setzero_si256();
+
+        for (int i = 0; i < L1_SIZE; i += 8) {
+            acc = _mm256_add_epi32(
+                acc,
+                _mm256_madd_epi16(
+                    _mm256_load_si256((const __m256i*)&l1_act),
+                    _mm256_load_si256((const __m256i*)&w[i])
+                )
+            );
+        }
+
+        int64_t sum = (int64_t)hsum_epi32(acc);
+        sum += l2_bias[o];
+        l2_out = (int32_t)sum; 
+    }
+
+    // ===== L3: hidden 2 --> output =====
+
+    // activate
+    activate_screlu(l2_out, l2_act, L2_SIZE, QA);
+
+    // weight transform 
+    // single output node ... dont need output loop like above
+    const int16_t* w = &l3_weights;
+    __m256i out64 = _mm256_setzero_si256();
+    for (int i = 0; i < L2_SIZE; i += 8) {
+        out64 = _mm256_add_epi64(
+                out64, 
+                _mm256_madd_epi16(
+                    _mm256_load_si256((const __m256i*)&l2_act),
+                    _mm256_load_si256((const __m256i*)&w[i])
+                )
+        );
+    }
+
+    out64 /= (int64_t)QA;
+    out64 += (int64_t)bias;
+    out64 *= SCALE;
+    out64 /= (int64_t)(QA * QB);
+
+/*
     const __m256i vec_zero = _mm256_setzero_si256();
     const __m256i vec_qa   = _mm256_set1_epi32(QA);
 
@@ -219,7 +399,7 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
     __m256i sum = _mm256_setzero_si256();
 
     // 8 neurons batched at once (~8x faster than scalar)
-    for (int i = 0; i < HIDDEN_SIZE; i += 8) {
+    for (int i = 0; i < L0_SIZE; i += 8) {
         // Load 8 accumulator values (int32)
         __m256i us_acc = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(us + i)
@@ -246,7 +426,7 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
             reinterpret_cast<const __m128i*>(weights + i)
         );
         __m128i them_w16 = _mm_loadu_si128(
-            reinterpret_cast<const __m128i*>(weights + HIDDEN_SIZE + i)
+            reinterpret_cast<const __m128i*>(weights + L0_SIZE + i)
         );
         __m256i us_w = _mm256_cvtepi16_epi32(us_w16);
         __m256i them_w = _mm256_cvtepi16_epi32(them_w16);
@@ -307,6 +487,7 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
     out64 /= (int64_t)(QA * QB);
 
     return (int)out64;
+*/
 }
 #endif
 
@@ -559,7 +740,7 @@ void NNUE::debug_simd(const Board& b) {
 
 void NNUE::debug_acc_full(const Accumulator& acc, const std::string& name) const {
     int32_t sum = 0, minv = acc.vals[0], maxv = acc.vals[0];
-    for (int i = 0; i < HIDDEN_SIZE; ++i) {
+    for (int i = 0; i < L0_SIZE; ++i) {
         sum += acc.vals[i];
         if (acc.vals[i] < minv) minv = acc.vals[i];
         if (acc.vals[i] > maxv) maxv = acc.vals[i];
