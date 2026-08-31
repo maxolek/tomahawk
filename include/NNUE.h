@@ -34,7 +34,9 @@ constexpr int BUCKET_LAYOUT[32] = {
 };
 
 constexpr int INPUT_SIZE  = 768 * NUM_INPUT_BUCKETS;   // (chessbucketgsmirrored) 10 horizontal king buckets
-constexpr int HIDDEN_SIZE = 1024;   // Hidden dimension
+constexpr int L0_SIZE = 512;   // Hidden dimensions
+constexpr int L1_SIZE = 16;
+constexpr int L2_SIZE = 32;
 
 // Quantisation factors used in training
 constexpr int QA = 255;
@@ -66,26 +68,28 @@ inline int output_bucket(U64 occ) {
 // Accumulator: holds hidden activations BEFORE SCReLU
 // ============================================================
 struct Accumulator {
-    int32_t vals[HIDDEN_SIZE];   // pre-activation <--> post-weight_transform
+    int32_t vals[L0_SIZE];   // pre-activation <--> post-weight_transform
     //std::unordered_set<int> active_features;
 
     inline void init_bias(const int16_t* bias) {
-        for (int i = 0; i < HIDDEN_SIZE; i += 8) {
+#ifdef _WIN32
+        for (int i = 0; i < L0_SIZE; i += 8) {
             __m256i b32 = _mm256_cvtepi16_epi32(
                 _mm_loadu_si128(reinterpret_cast<const __m128i*>(bias + i))
             );
             _mm256_storeu_si256(reinterpret_cast<__m256i*>(vals + i), b32);
         }
-        
-        //for (int i = 0; i < HIDDEN_SIZE; i++)
-        //    vals[i] = bias[i];
+#else
+        for (int i = 0; i < L0_SIZE; i++)
+            vals[i] = bias[i];
+#endif
         //active_features.clear();
     }
 
-    inline void add_feature(int feature_idx, int16_t (*W)[HIDDEN_SIZE]) {
+    inline void add_feature(int feature_idx, int16_t (*W)[L0_SIZE]) {
         const int16_t* col = W[feature_idx];
-
-        for (int i = 0; i < HIDDEN_SIZE; i += 8) {
+#ifdef _WIN32
+        for (int i = 0; i < L0_SIZE; i += 8) {
             // load 8 int32 accumulator values
             __m256i acc = _mm256_loadu_si256(
                 reinterpret_cast<const __m256i*>(vals + i)
@@ -101,16 +105,17 @@ struct Accumulator {
                 reinterpret_cast<__m256i*>(vals + i), acc
             );
         }
-
-        //for (int i = 0; i < HIDDEN_SIZE; i++)
-        //    vals[i] += col[i];
+#else
+        for (int i = 0; i < L0_SIZE; i++)
+            vals[i] += col[i];
+#endif
         //active_features.insert(feature_idx);
     }
 
-    inline void remove_feature(int feature_idx, int16_t (*W)[HIDDEN_SIZE]) {
+    inline void remove_feature(int feature_idx, int16_t (*W)[L0_SIZE]) {
         const int16_t* col = W[feature_idx];
-        
-        for (int i = 0; i < HIDDEN_SIZE; i += 8) {
+#ifdef _WIN32
+        for (int i = 0; i < L0_SIZE; i += 8) {
             __m256i acc = _mm256_loadu_si256(
                 reinterpret_cast<const __m256i*>(vals + i)
             );
@@ -124,19 +129,21 @@ struct Accumulator {
                 reinterpret_cast<__m256i*>(vals + i), acc
             );
         }
-        
-        //for (int i = 0; i < HIDDEN_SIZE; i++)
-        //    vals[i] -= col[i];
+#else
+        for (int i = 0; i < L0_SIZE; i++)
+            vals[i] -= col[i];
+#endif
         //active_features.erase(feature_idx);
     }
 
     // typical moves perform both of these
     // so combine to best utilize SIMD
-    inline void add_sub_feature(int add_idx, int sub_idx, int16_t (*W)[HIDDEN_SIZE]) {
+    inline void add_sub_feature(int add_idx, int sub_idx, int16_t (*W)[L0_SIZE]) {
+#ifdef _WIN32
         const int16_t* add_col = W[add_idx];
         const int16_t* sub_col = W[sub_idx];
 
-        for (int i = 0; i < HIDDEN_SIZE; i += 8) {
+        for (int i = 0; i < L0_SIZE; i += 8) {
             __m256i acc = _mm256_loadu_si256(
                 reinterpret_cast<const __m256i*>(vals + i)
             );
@@ -152,6 +159,10 @@ struct Accumulator {
 
             _mm256_storeu_si256(reinterpret_cast<__m256i*>(vals + i), acc);
         }
+#else 
+        add_feature(add_idx, W);
+        remove_feature(sub_idx, W);
+#endif
     }
 
     /*
@@ -194,15 +205,23 @@ public:
     void build_accumulators(const Board& b);
     void build_halfka_accumulators(const Board& b);
 
-    // ========== L0: 768 → 128 ==========
+    // ========== L0: 768xINPUT_BUCKETS → 512 ==========
     // Stored column-major: W0[feature][hidden]
-    int16_t l0w[INPUT_SIZE][HIDDEN_SIZE];
-    int16_t l0b[HIDDEN_SIZE];
+    int16_t l0w[INPUT_SIZE][L0_SIZE];
+    int16_t l0b[L0_SIZE];
 
-    // ========== L1: 2*128 → 1 ==========
+    // ========== L1: 512 → 16 ==========
     // Dual-perspective: [stm_hidden, ntm_hidden]
-    int16_t l1w[NUM_OUTPUT_BUCKETS][2 * HIDDEN_SIZE];
-    int16_t l1b[NUM_OUTPUT_BUCKETS];
+    int16_t l1w[L1_SIZE * NUM_OUTPUT_BUCKETS][L0_SIZE]; // 2*L0_SIZE if not using pairwise multiply
+    int16_t l1b[L1_SIZE * NUM_OUTPUT_BUCKETS];          // otherwise the concat is reduced back down to L0_SIZE
+
+    // ========== L2: 16 → 32 ==========
+    int16_t l2w[L2_SIZE * NUM_OUTPUT_BUCKETS][L1_SIZE];
+    int16_t l2b[L2_SIZE * NUM_OUTPUT_BUCKETS];
+
+    // ========== L3: 32 → NUM_OUTPUT_BUCKETS ==========
+    int16_t l3w[NUM_OUTPUT_BUCKETS][L2_SIZE];
+    int16_t l3b[NUM_OUTPUT_BUCKETS];
 
     // Cached accumulators
     // dual perspective
