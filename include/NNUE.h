@@ -39,8 +39,9 @@ constexpr int L2_SIZE = 16;
 constexpr int L3_SIZE = 32;
 
 // Quantisation factors used in training
-constexpr int QA = 255;
-constexpr int QB = 64;
+constexpr int QA = 127; // L0 (feature-transformer) [must fit in screlu int32]
+constexpr int QB = 64;  // L1 weights
+constexpr int QC = 64;  // L2+3 weights
 constexpr int SCALE = 400;
 
 // ============================================================
@@ -68,16 +69,14 @@ inline int output_bucket(U64 occ) {
 // Accumulator: holds hidden activations BEFORE SCReLU
 // ============================================================
 struct Accumulator {
-    int32_t vals[L1_SIZE];   // pre-activation <--> post-weight_transform
+    alignas(32) int16_t vals[L1_SIZE];   // pre-activation <--> post-weight_transform
     //std::unordered_set<int> active_features;
 
     inline void init_bias(const int16_t* bias) {
 #ifdef _WIN32
-        for (int i = 0; i < L1_SIZE; i += 8) {
-            __m256i b32 = _mm256_cvtepi16_epi32(
-                _mm_loadu_si128(reinterpret_cast<const __m128i*>(bias + i))
-            );
-            _mm256_storeu_si256(reinterpret_cast<__m256i*>(vals + i), b32);
+        for (int i = 0; i < L1_SIZE; i += 16) {
+            __m256i b = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(bias + i));
+            _mm256_store_si256(reinterpret_cast<__m256i*>(vals + i), b);
         }
 #else
         for (int i = 0; i < L1_SIZE; i++)
@@ -89,21 +88,14 @@ struct Accumulator {
     inline void add_feature(int feature_idx, int16_t (*W)[L1_SIZE]) {
         const int16_t* col = W[feature_idx];
 #ifdef _WIN32
-        for (int i = 0; i < L1_SIZE; i += 8) {
+        for (int i = 0; i < L1_SIZE; i += 16) {
             // load 8 int32 accumulator values
-            __m256i acc = _mm256_loadu_si256(
-                reinterpret_cast<const __m256i*>(vals + i)
-            );
-            // load 8 int16 weights, widen to int32 inline
-            __m256i w32 = _mm256_cvtepi16_epi32(
-                _mm_loadu_si128(reinterpret_cast<const __m128i*>(col + i))
-            );
+            __m256i acc = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(vals + i));
+            // load 8 int16 weights
+            __m256i w = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(col + i));
 
-            acc = _mm256_add_epi32(acc, w32);
-            
-            _mm256_storeu_si256(
-                reinterpret_cast<__m256i*>(vals + i), acc
-            );
+            acc = _mm256_add_epi16(acc, w);
+            _mm256_store_si256(reinterpret_cast<__m256i*>(vals + i), acc);
         }
 #else
         for (int i = 0; i < L1_SIZE; i++)
@@ -115,19 +107,12 @@ struct Accumulator {
     inline void remove_feature(int feature_idx, int16_t (*W)[L1_SIZE]) {
         const int16_t* col = W[feature_idx];
 #ifdef _WIN32
-        for (int i = 0; i < L1_SIZE; i += 8) {
-            __m256i acc = _mm256_loadu_si256(
-                reinterpret_cast<const __m256i*>(vals + i)
-            );
-            __m256i w32 = _mm256_cvtepi16_epi32(
-                _mm_loadu_si128(reinterpret_cast<const __m128i*>(col + i))
-            );
+        for (int i = 0; i < L1_SIZE; i += 16) {
+            __m256i acc = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(vals + i));
+            __m256i w = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(col + i));
 
-            acc = _mm256_sub_epi32(acc, w32);
-
-            _mm256_storeu_si256(
-                reinterpret_cast<__m256i*>(vals + i), acc
-            );
+            acc = _mm256_sub_epi32(acc, w);
+            _mm256_store_si256(reinterpret_cast<__m256i*>(vals + i), acc);
         }
 #else
         for (int i = 0; i < L1_SIZE; i++)
@@ -139,25 +124,19 @@ struct Accumulator {
     // typical moves perform both of these
     // so combine to best utilize SIMD
     inline void add_sub_feature(int add_idx, int sub_idx, int16_t (*W)[L1_SIZE]) {
-#ifdef _WIN32
         const int16_t* add_col = W[add_idx];
         const int16_t* sub_col = W[sub_idx];
 
-        for (int i = 0; i < L1_SIZE; i += 8) {
-            __m256i acc = _mm256_loadu_si256(
-                reinterpret_cast<const __m256i*>(vals + i)
-            );
-            __m256i add_w = _mm256_cvtepi16_epi32(
-                _mm_loadu_si128(reinterpret_cast<const __m128i*>(add_col + i))
-            );
-            __m256i sub_w = _mm256_cvtepi16_epi32(
-                _mm_loadu_si128(reinterpret_cast<const __m128i*>(sub_col + i))
-            );
+#ifdef _WIN32
+        for (int i = 0; i < L1_SIZE; i += 16) {
+            __m256i acc = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(vals + i));
+            __m256i add_w = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(add_col + i));
+            __m256i sub_w = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(sub_col + i));
 
             acc = _mm256_add_epi32(acc, add_w);
             acc = _mm256_sub_epi32(acc, sub_w);
 
-            _mm256_storeu_si256(reinterpret_cast<__m256i*>(vals + i), acc);
+            _mm256_store_si256(reinterpret_cast<__m256i*>(vals + i), acc);
         }
 #else 
         add_feature(add_idx, W);
@@ -210,18 +189,18 @@ public:
     int16_t l0w[INPUT_SIZE][L1_SIZE];
     int16_t l0b[L1_SIZE];
 
-    // ========== L1: 512 → 16 ==========
+    // ========== L1: 512 → 8x16 ==========
     // Dual-perspective: [stm_hidden, ntm_hidden]
-    int16_t l1w[L2_SIZE * NUM_OUTPUT_BUCKETS][L1_SIZE]; // 2*L0_SIZE if not using pairwise multiply
-    int16_t l1b[L2_SIZE * NUM_OUTPUT_BUCKETS];          // otherwise the concat is reduced back down to L0_SIZE
+    int8_t l1w[L2_SIZE * NUM_OUTPUT_BUCKETS][L1_SIZE]; // 2*L0_SIZE if not using pairwise multiply
+    int32_t l1b[L2_SIZE * NUM_OUTPUT_BUCKETS];          // otherwise the concat is reduced back down to L0_SIZE
 
-    // ========== L2: 16 → 32 ==========
-    int16_t l2w[L3_SIZE * NUM_OUTPUT_BUCKETS][L2_SIZE];
-    int16_t l2b[L3_SIZE * NUM_OUTPUT_BUCKETS];
+    // ========== L2: 16 → 8x32 ==========
+    int8_t l2w[L3_SIZE * NUM_OUTPUT_BUCKETS][L2_SIZE];
+    int32_t l2b[L3_SIZE * NUM_OUTPUT_BUCKETS];
 
     // ========== L3: 32 → NUM_OUTPUT_BUCKETS ==========
-    int16_t l3w[NUM_OUTPUT_BUCKETS][L3_SIZE];
-    int16_t l3b[NUM_OUTPUT_BUCKETS];
+    int8_t l3w[NUM_OUTPUT_BUCKETS][L3_SIZE];
+    int32_t l3b[NUM_OUTPUT_BUCKETS];
 
     // Cached accumulators
     // dual perspective
@@ -234,45 +213,84 @@ public:
     // Helpers
     // ========================================================
 
+    inline int32_t crelu(int32_t x) const {
+        return std::clamp<int32_t>(x, 0, QA);
+    }
+
     inline int32_t screlu(int32_t x) const {
         int32_t y = std::clamp<int32_t>(x, 0, QA);
         return y * y;
     }
 
-    inline std::array<int32_t, L1_SIZE> pairwise_mul(
-        const std::array<int32_t, L1_SIZE>& stm, 
-        const std::array<int32_t, L1_SIZE>& ntm
+    // pairwise multiply WITHIN each accumulator
+    // concat resulting 1/2-stm and 1/2-ntm accumulators
+    inline void pairwise_mul(
+        const int32_t* stm,
+        const int32_t* ntm,
+        int32_t* result
     ) {
-        std::array<int32_t, L1_SIZE> result;
-        std::transform(stm.begin(), stm.end(), ntm.begin(), result.begin(), std::multiples<int>());
-        return result
-    }
+        constexpr int HALF = L1_SIZE / 2;
 
-    // SIMD
-#ifdef _WIN32
-    inline std::array<int32_t, L1_SIZE> pairwise_mul_simd(
-        const std::array<int32_t, L1_SIZE>& stm,
-        const std::array<int32_t, L1_SIZE>& ntm
-    ) {
-        std::array<int32_t, L1_SIZE> result;
-        
-        for (int i = 0; i < L1_SIZE, i+= 8) {
-            // load 8 elements from both arrays
-            __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&stm[i]));
-            __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&ntm[i]));
-
-            // pairwise multiply (lower 32 bits)
-            __m256i vr = _mm256_mullo_epi32(va, vb);
-
-            // store 8 results directly into result
-            _mm256_storeu_si256(reinterpret_cast<__m256i*>(&result[i]), vr);
+        for (int i = 0; i < HALF; ++i) {
+            result[i] = stm[i] * stm[i + HALF];
+            result[i + HALF] = ntm[i] * ntm[i + HALF];
         }
-
-        return result;
     }
+
+#ifdef _WIN32
+    template <typename T>
+    inline void pairwise_mul_simd(
+        const T* stm,
+        const T* ntm,
+        int32_t* result
+    ) {
+        constexpr int HALF = L1_SIZE / 2;
+
+        if constexpr (std::is_same_v<T, int16_t>) {
+            for (int i = 0; i < HALF; i += 16) {
+                __m256i stm_a = _mm256_load_si256( reinterpret_cast<const __m256i*>(&stm[i]));
+                __m256i stm_b = _mm256_load_si256(reinterpret_cast<const __m256i*>(&stm[i + HALF]));
+
+                __m256i ntm_a = _mm256_load_si256(reinterpret_cast<const __m256i*>(&ntm[i]));
+                __m256i ntm_b = _mm256_load_si256(reinterpret_cast<const __m256i*>(&ntm[i + HALF]));
+
+                __m256i stm_r = _mm256_mullo_epi16(stm_a, stm_b);
+                __m256i ntm_r = _mm256_mullo_epi16(ntm_a, ntm_b);
+
+                // Widen STM 16-bit products -> 32-bit
+                _mm256_store_si256(
+                    reinterpret_cast<__m256i*>(&result[i]),
+                    _mm256_cvtepi16_epi32(
+                        _mm256_castsi256_si128(stm_r)
+                    )
+                );
+                _mm256_store_si256(
+                    reinterpret_cast<__m256i*>(&result[i + 8]),
+                    _mm256_cvtepi16_epi32(
+                        _mm256_extracti128_si256(stm_r, 1)
+                    )
+                );
+
+                // Widen NTM 16-bit products -> 32-bit
+                _mm256_store_si256(
+                    reinterpret_cast<__m256i*>(&result[i + HALF]),
+                    _mm256_cvtepi16_epi32(
+                        _mm256_castsi256_si128(ntm_r)
+                    )
+                );
+                _mm256_store_si256(
+                    reinterpret_cast<__m256i*>(&result[i + HALF + 8]),
+                    _mm256_cvtepi16_epi32(
+                        _mm256_extracti128_si256(ntm_r, 1)
+                    )
+                );
+            }
+        }
+    }
+
 
     // horizontal sum int32
-    // performs weight multplication
+    // performs weight multplication for !! output layer !!
     inline int32_t hsum_epi32(__m256i v) {
         __m128i lo = _mm256_castsi256_si128(v);
         __m128i hi = _mm256_extracti128_si256(v, 1);
@@ -287,15 +305,29 @@ public:
         return _mm_cvtsi128_si32(lo);
     }
 
-    // fold SCRELU into multiply-add
-    inline void activate_screlu(const int16_t* in, int16_t* out, int size, int16_t QA) {
+    inline void activate_crelu(const int16_t* in, int16_t* out, int size, int QA) {
         const __m256i zero = _mm256_setzero_si256();
         const __m256i qa   = _mm256_set1_epi16(QA);
         for (int i = 0; i < size; i += 16) {
             __m256i v       = _mm256_load_si256((const __m256i*)&in[i]);
             __m256i clipped = _mm256_min_epi16(_mm256_max_epi16(v, zero), qa);
-            __m256i squared = _mm256_mullo_epi16(clipped, clipped); // safe: QA <= 181
-            _mm256_store_si256((__m256i*)&out[i], squared);
+            _mm256_store_si256((__m256i*)&out[i], clipped);
+        }
+    }
+
+    // fold SCRELU into multiply-add
+    inline void activate_screlu(const int32_t* in, int32_t* out, int size, int QA) {
+        const __m256i zero = _mm256_setzero_si256();
+        const __m256i qa   = _mm256_set1_epi16(QA);
+
+        for (int i = 0; i < size; i += 16) {
+            __m256i v = _mm256_load_si256(reinterpret_cast<const __m256i*>(in + i));
+
+            v = _mm256_max_epi32(v, zero);
+            v = _mm256_min_epi32(v, qa);
+            v = _mm256_mullo_epi32(v, v);
+
+            _mm256_store_si256(reinterpret_cast<__m256i*>(out + i), v);
         }
     }
 #endif

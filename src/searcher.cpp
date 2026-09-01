@@ -176,12 +176,14 @@ int Searcher::generateAndOrderMoves(Move moves[MAX_MOVES], int ply, const Move t
 // QUIESCENCE SEARCH
 // ============================================================================
 
-int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int ply, int depth, int search_depth) {
+int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int ply, int depth, int search_depth, bool& tainted) {
     if (limits.out_of_time()) return alpha;
+    tainted = false;
 
     // draw detection
     if (board.isThreefold() || board.currentGameState.fiftyMoveCounter >= 100) {
         //tt.store(board.zobrist_hash, depth, ply, 0, EXACT, Move::NullMove());
+        //repetition_taint_hits++;
         return params.DRAW_EVAL;
     }
 
@@ -232,6 +234,7 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
     Move bestMove = Move::NullMove();
     bool is_king_move = false;
     bool build_accums = false;
+    bool child_tainted = false;
 
     for (int i = 0; i < count; i++) {
         if (limits.out_of_time()) break;
@@ -245,7 +248,7 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
         perform_move(board, m, build_accums);
 
         int score; PV childPV;
-        score = -quiescence(-beta, -alpha, childPV, limits, ply+1, depth, search_depth);
+        score = -quiescence(-beta, -alpha, childPV, limits, ply+1, depth, search_depth, child_tainted);
 
         // Undo board & NNUE (capture before must be reconstructed from states)
         perform_unmove(board, m, build_accums);
@@ -261,6 +264,7 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
             bestMove = m;
             alpha = std::max(alpha, score);
             pv.set(m, childPV);
+            tainted = child_tainted;
         }
     }
 
@@ -277,7 +281,7 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
 
 int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                       std::vector<Move>& previousPV, SearchLimits& limits, int ply, 
-                      bool can_nmp) {
+                      bool can_nmp, bool& tainted) {
 #ifdef _WIN32
     int static_eval = nnue.eval_simd(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
 #else 
@@ -286,6 +290,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
     int  f_prune = 0; // flag for futility pruning
     bool is_king_move = false;
     bool build_accums = false;
+    tainted = false;
     #ifdef DEV
         STATS_NODE(depth+ply, ply); // track node per depth
     #else 
@@ -297,11 +302,13 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
 
     if (board.isThreefold() || board.currentGameState.fiftyMoveCounter >= 100) {
         //tt.store(board.zobrist_hash, depth, ply, 0, EXACT, Move::NullMove());
+        //repetition_taint_hits++;
+        tainted = true;
         return params.DRAW_EVAL;
     }
 
     if (depth == 0) {
-        return quiescence(alpha, beta, pv, limits, ply, depth, ply);
+        return quiescence(alpha, beta, pv, limits, ply, depth, ply, tainted);
     }
 
     // --- TT probe ---
@@ -402,10 +409,11 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
             STATS_NMP(depth+ply, ply);
         #endif
         PV emptyPV;
+        bool nmp_tainted = false;
 
         // null moves just change the side to move (and last-move cache)
         board.MakeNullMove();
-        int null_score = -negamax(depth - params.R_NMP, -beta, -(beta - 1), emptyPV, previousPV, limits, ply + 1, false);
+        int null_score = -negamax(depth - params.R_NMP, -beta, -(beta - 1), emptyPV, previousPV, limits, ply + 1, false, nmp_tainted);
         board.UnmakeNullMove();
 
         // null window around beta so if if null move fails high 
@@ -431,6 +439,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
 
     Move m; int score; PV childPV; PV emptyPV;
     bool gives_check, is_capture;
+    bool child_tainted = false;
 
     // current board state info
     bool in_check = board.is_in_check;
@@ -522,11 +531,11 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         // else it fails low and is not going to be a better move than what has been found
         // null window searches are cheap and so the re-searches are worth the speedup
         if (i == 0) {
-            score = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true);
+            score = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true, child_tainted);
         } else {
             // null-window search
             // lmr =0 OR >0
-            score = -negamax(depth - 1 - _lmr_R, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true);
+            score = -negamax(depth - 1 - _lmr_R, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true, child_tainted);
 
             // if lmr_r > 0 then re-search with null-window at full depth
             // if score > alpha from this re-search,
@@ -537,7 +546,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                     STATS_PVS_RESEARCH(depth+ply, ply, 0);
                 #endif
                 emptyPV = {};
-                score = -negamax(depth - 1, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true);
+                score = -negamax(depth - 1, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true, child_tainted);
             }
 
             // if lmr_R == 0 then search with null window
@@ -549,7 +558,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                     STATS_PVS_RESEARCH(depth+ply, ply, 1);
                 #endif
                 emptyPV = {};
-                score = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true);
+                score = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true, child_tainted);
             }
         }
 
@@ -560,6 +569,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
             bestEval = score;
             bestMove = m;
             pv.set(m, childPV);
+            tainted = child_tainted;
         }
 
         alpha = std::max(alpha, bestEval);
@@ -581,17 +591,19 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
 
     // --- tt-store ---
 
-    BoundType flag = EXACT;
-    if (bestEval <= alphaOrig) { 
-        flag = UPPERBOUND; 
-        #ifdef DEV
-            STATS_FAILLOW(depth+ply, ply); 
-        #endif
-    }
-    else if (bestEval >= beta) { 
-        flag = LOWERBOUND; 
-    }
-    tt.store(board.zobrist_hash, depth, ply, bestEval, flag, bestMove);
+    //if (!tainted) {
+        BoundType flag = EXACT;
+        if (bestEval <= alphaOrig) { 
+            flag = UPPERBOUND; 
+            #ifdef DEV
+                STATS_FAILLOW(depth+ply, ply); 
+            #endif
+        }
+        else if (bestEval >= beta) { 
+            flag = LOWERBOUND; 
+        }
+        tt.store(board.zobrist_hash, depth, ply, bestEval, flag, bestMove);
+    //}
     //STATS_TT_STORE(depth+ply, ply);
 
     return bestEval;
@@ -610,6 +622,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
     bool exact = false;
     bool is_king_move = false;
     bool build_accums = false;
+    bool _false = false;
 
     // current board state info
     bool in_check = board.is_in_check;
@@ -685,12 +698,12 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
 
             // --- PVS ---
             if (i == 0) {
-                eval = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true);
+                eval = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true, _false);
                 exact = true;
             } else {
                 // null-window search
                 // lmr =0 OR >0
-                eval = -negamax(depth - 1 - _lmr_R, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true);
+                eval = -negamax(depth - 1 - _lmr_R, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true, _false);
 
                 // if lmr_r > 0 then re-search with null-window at full depth
                 // if score > alpha from this re-search,
@@ -701,7 +714,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                         STATS_PVS_RESEARCH(depth+ply, ply, 0); // lmr
                     #endif
                     emptyPV = {};
-                    eval = -negamax(depth - 1, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true);
+                    eval = -negamax(depth - 1, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true, _false);
                 }
 
                 // if lmr_R == 0 then search with null window
@@ -713,7 +726,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                         STATS_PVS_RESEARCH(depth+ply, ply, 2); // root full
                     #endif
                     emptyPV = {};
-                    eval = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true);
+                    eval = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true, _false);
                     exact = true;
                 }
             }
@@ -865,6 +878,10 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
         // still want fair eval for continuation metrics, etc.
         if ((move_count == 1) && (depth == 3)) break;
     }
+
+    // after the search call in your UCI "go" handler, before printing bestmove:
+    //std::cout << "info string rep taint hits: " << repetition_taint_hits << std::endl;
+    //repetition_taint_hits = 0;
 
     return last_result;
 }

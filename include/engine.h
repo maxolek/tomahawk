@@ -76,7 +76,7 @@ struct EngineOptions {
 
     fs::path opening_pst_path  = fs::path(PROJECT_ROOT) / "bin/pst/pst_opening.txt";
     fs::path endgame_pst_path  = fs::path(PROJECT_ROOT) / "bin/pst/pst_endgame.txt";
-    fs::path nnue_weight_path  = fs::path(PROJECT_ROOT) / "bin/nnue_wgts/output_buckets_25wdl_1000.bin";
+    fs::path nnue_weight_path  = fs::path(PROJECT_ROOT) / "bin/nnue_wgts/1024_16_32_pairmul_screlu.bin";
     fs::path opening_book_path = fs::path(PROJECT_ROOT) / "bin/Titans.bin";
     fs::path syzygy_path       = fs::path(PROJECT_ROOT);
 

@@ -54,12 +54,12 @@ inline int feature_index_ntm_halfka(
 // effectively the row-major order of the transposed matrix. The C++ side stores
 // the same logical matrix as l0w[input_feature][hidden], so we must reconstruct
 // the feature-major representation from the flat Bullet stream before use.
-static void decode_bullet_l0w(const uint8_t* p, int16_t (*out)[L0_SIZE]) {
+static void decode_bullet_l0w(const uint8_t* p, int16_t (*out)[L1_SIZE]) {
     const int16_t* flat = reinterpret_cast<const int16_t*>(p);
     for (int feature = 0; feature < INPUT_SIZE; ++feature) {
-        for (int hidden = 0; hidden < L0_SIZE; ++hidden) {
+        for (int hidden = 0; hidden < L1_SIZE; ++hidden) {
             //out[feature][hidden] = flat[(size_t)hidden * (size_t)INPUT_SIZE + (size_t)feature];
-            out[feature][hidden] = flat[(size_t)feature * (size_t)L0_SIZE + (size_t)hidden];
+            out[feature][hidden] = flat[(size_t)feature * (size_t)L1_SIZE + (size_t)hidden];
         }
     }
 }
@@ -198,42 +198,37 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
     Accumulator* them = is_white_move ? &acc_ntm : &acc_stm;
 
     // pre-set layer array
-    int64_t stm_activated[L1_SIZE];
-    int64_t ntm_activated[L1_SIZE];
-    int32_t l0_pair_mul[L1_SIZE];
+    int32_t stm_activated[L1_SIZE];
+    int32_t ntm_activated[L1_SIZE];
+    int32_t l1_pair_mul[L1_SIZE];
     int32_t l2_in[L2_SIZE];
     int32_t l3_in[L3_SIZE];
 
     // pre-set output bucket
     const int bucket = output_bucket(occ);
-    const int16_t* l1_weights = l1w[bucket];
-    const int32_t l1_bias = l1b[bucket];
-    const int16_t* l2_weights = l2w[bucket];
-    const int32_t l2_bias = l2b[bucket];
-    const int16_t* l3_weights = l3w[bucket];
-    const int32_t l3_bias = l3b[bucket];
 
     // ===== L1: accumulator --> hidden 1 =====
 
     // output vector loop
     for (int o = 0; o < L2_SIZE; o++) {
         int64_t sum = 0;
-        const int16_t* w = &l1_weights[o * L1_SIZE]; // NO PAIRWISE MULTIPLY: 2*LO_SIZE due to concat(dual_perspectives)
+        const int8_t* w = l1w[bucket * L2_SIZE + o]; // NO PAIRWISE MULTIPLY: 2*LO_SIZE due to concat(dual_perspectives)
+        const int32_t bias = l1b[bucket * L2_SIZE + o];
 
-        // activate + pairwise multiply
+        // activate + pairwise multiply (+ concat)
         for (int i = 0; i < L1_SIZE; i++) {
-            stm_activated[i] = (int64_t)screlu(us->vals[i]);
-            ntm_activated[i] = (int64_t)screlu(them->vals[i]);
+            stm_activated[i] = crelu(us->vals[i]);
+            ntm_activated[i] = crelu(them->vals[i]);
         }
-        l0_pair_mul = pairwise_mul(stm_activated, ntm_activated);
+        pairwise_mul(stm_activated, ntm_activated, l1_pair_mul);
         
         // feed forward to L2 activation (weight multiply, do not activate)
         for (int i = 0; i < L1_SIZE; i++) 
-            sum += l0_pair_mul * (int32_t)w[i];
+            sum += (int64_t)l1_pair_mul[i] * (int64_t)w[i];
 
         // dequantize, add bias, load to output vector
         sum /= (int64_t)QA;
-        sum += l1_bias[o];
+        sum += bias;
         l2_in[o] = (int32_t)sum;
     }
 
@@ -247,17 +242,18 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
     // weight loop
     for (int o = 0; o < L3_SIZE; o++) {
         int64_t sum = 0;
-        const int16_t* w = &l2_weights[o * L1_SIZE];
+        const int8_t* w = l2w[bucket * L3_SIZE + o];
+        const int32_t bias = l2b[bucket * L3_SIZE + o];
 
         // feed activates neurons forward to L3 pre-activation
         for (int i = 0; i < L2_SIZE; i++)
-            sum += (int64_t)l2_in * (int32_t)w[i];
+            sum += (int64_t)l2_in[i] * (int32_t)w[i];
         for (int i = 0; i < L2_SIZE; i++) 
-            sum += (int64_t)l2_in * (int32_t)w[i];
+            sum += (int64_t)l2_in[i] * (int32_t)w[i];
 
         // dequantize, bias, and load
         sum /= (int64_t)QB; 
-        sum += l2_bias[o]; 
+        sum += bias; 
         l3_in[o] = (int32_t)sum;
     }
 
@@ -270,10 +266,10 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
     // weight loop
     int64_t out64 = 0;
     for (int i = 0; i < L3_SIZE; i++) 
-        out64 += (int64_t)l3_in * (int32_t)l3_weights[i];
+        out64 += (int64_t)l3_in[i] * (int32_t)l3w[bucket][i];
 
     // dequantize, bias, and output
-    out64 += l3_bias;
+    out64 += l3b[bucket];
     out64 *= SCALE;
     out64 /= (int64_t)(QA * QB);
 
@@ -295,100 +291,98 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
     // pre-set layer array
     alignas(32) int16_t us_act[L1_SIZE];
     alignas(32) int16_t them_act[L1_SIZE];
-    alignas(64) int32_t l0_pair_mul[L1_SIZE];
-    alignas(64) int32_t l2_in[L2_SIZE];
-    alignas(64) int64_t l2_act[L2_SIZE];
-    alignas(64) int32_t l3_in[L3_SIZE];
-    alignas(64) int64_t l3_act[L3_SIZE];
+    alignas(32) int32_t l1_out[L1_SIZE];
+    alignas(32) int32_t l2_in[L2_SIZE];
+    alignas(32) int32_t l2_act[L2_SIZE];
+    alignas(32) int32_t l3_in[L3_SIZE];
+    alignas(32) int32_t l3_act[L3_SIZE];
 
     // pre-set output bucket
     const int bucket = output_bucket(occ);
-    const int16_t* l1_weights = l1w[bucket];
-    const int32_t l1_bias = l1b[bucket];
-    const int16_t* l2_weights = l2w[bucket];
-    const int32_t l2_bias = l2b[bucket];
-    const int16_t* l3_weights = l3w[bucket];
-    const int32_t l3_bias = l3b[bucket];
 
     // ===== L1: accumulator --> hidden 1 =====
 
     // activate accumulator values
-    activate_screlu(us->vals, us_act, L1_SIZE, QA);
-    activate_screlu(them->vals, them_act, L1_SIZE, QA);
+    // Crelu instead of SCrelu since pairwise mult gives us non-linearity
+    //    and scale of (QA*QA)*(QA*QA) is huge
+    activate_crelu(us->vals, us_act, L1_SIZE, QA);
+    activate_crelu(them->vals, them_act, L1_SIZE, QA);
 
-    // pairwise multiply
-    l0_pair_mul = pairwise_mul_simd(us_act, them_act);
+    // pairwise multiply + concat
+    pairwise_mul_simd(us_act, them_act, l1_out);
 
     // weight transform
+    //  AVX2 doesnt have int16 x int8 directly
+    //  so widen weights to in16
     for (int o = 0; o < L2_SIZE; o++) {
-        const int16_t* w = &l1_weights[o * L1_SIZE];
+        const int8_t* w = l1w[bucket * L2_SIZE + o];
+        const int32_t bias = l1b[bucket * L2_SIZE + o];
         __m256i acc = _mm256_setzero_si256();
 
-        for (int i = 0; i < L1_SIZE; i += 16) {
-            acc = _mm256_add_epi32(
-                    acc, 
-                    _mm256_madd_epi16(
-                        _mm256_load_si256((const __m256i*)&l0_pair_mul[i]),
-                        _mm256_load_si256((const __m256i*)&w[i])
-                    )
-                );
+        for (int i = 0; i < L1_SIZE; i += 8) {
+            __m256i a = _mm256_load_si256(reinterpret_cast<const __m256i*>(&l1_out[i]));
+            __m128i w8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(&w[i]));
+            __m256i w32 = _mm256_cvtepi8_epi32(w8);
+            __m256i product = _mm256_mullo_epi32(a, w32);
+            acc = _mm256_add_epi32(acc, product);
         }
         
         // create layer nodes (pre-activation)
-        int64_t sum = (int64_t)hsum_epi32(acc);
-        sum /= (int64_t)QA;
-        sum += l1_bias[o];
-        l2_in[o] = (int32_t)sum;
+        int32_t sum = hsum_epi32(acc);
+        sum /= QA; // (QA*QA)*QB --> QA*QB
+        sum += bias;
+        l2_in[o] = sum;
     }
 
     // ===== L2: hidden 1 --> hidden 2 =====
 
     // activate
-    activate_screlu(l2_in, l2_act, L1_SIZE, QA);
+    activate_screlu(l2_in, l2_act, L2_SIZE, QA);
 
     // weight transform
     for (int o = 0; o < L3_SIZE; o++) {
-        const int16_t* w = &l2_weights[o * L1_SIZE];
+        const int8_t* w = l2w[bucket * L3_SIZE + o];
+        const int32_t bias = l2b[bucket * L3_SIZE + o];
         __m256i acc = _mm256_setzero_si256();
 
-        for (int i = 0; i < L1_SIZE; i += 8) {
-            acc = _mm256_add_epi32(
-                acc,
-                _mm256_madd_epi16(
-                    _mm256_load_si256((const __m256i*)&l2_act),
-                    _mm256_load_si256((const __m256i*)&w[i])
-                )
-            );
+        for (int i = 0; i < L2_SIZE; i += 8) {
+            __m256i a = _mm256_load_si256(reinterpret_cast<const __m256i*>(&l2_act[i]));
+            __m128i w8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(&w[i]));
+            __m256i w32 = _mm256_cvtepi8_epi32(w8);
+            __m256i product = _mm256_mullo_epi32(a, w32);
+            acc = _mm256_add_epi32(acc, product);
         }
 
-        int64_t sum = (int64_t)hsum_epi32(acc);
-        sum += l2_bias[o];
-        l3_in = (int32_t)sum; 
+        int32_t sum = hsum_epi32(acc);
+        sum /= (QA * QB); // (QA*QB)*(QA*QB)*QC --> QA*QB*QC
+        sum += bias;
+        l3_in[o] = sum; 
     }
 
     // ===== L3: hidden 2 --> output =====
 
     // activate
-    activate_screlu(l3_in, l3_act, L2_SIZE, QA);
+    activate_screlu(l3_in, l3_act, L3_SIZE, QA);
 
     // weight transform 
     // single output node ... dont need output loop like above
-    const int16_t* w = &l3_weights;
-    __m256i out64 = _mm256_setzero_si256();
+    __m256i acc = _mm256_setzero_si256();
     for (int i = 0; i < L3_SIZE; i += 8) {
-        out64 = _mm256_add_epi64(
-                out64, 
-                _mm256_madd_epi16(
-                    _mm256_load_si256((const __m256i*)&l3_act),
-                    _mm256_load_si256((const __m256i*)&w[i])
-                )
-        );
+        const int8_t* w = l3w[bucket];
+        __m256i a = _mm256_load_si256(reinterpret_cast<const __m256i*>(&l3_act[i]));
+        __m128i w8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(&w[i]));
+        __m256i w32 = _mm256_cvtepi8_epi32(w8);
+        __m256i product = _mm256_mullo_epi32(a, w32);
+        acc = _mm256_add_epi32(acc, product);
     }
 
-    out64 /= (int64_t)QA;
-    out64 += (int64_t)bias;
-    out64 *= SCALE;
-    out64 /= (int64_t)(QA * QB);
+    int64_t out = (int64_t)hsum_epi32(acc);
+    out /= (int64_t)(QA * QB * QC); // (QA*QB*QC)*(QA*QB*QC)*QC --> QA*QB*QC*QC
+    out += (int64_t)l3b[bucket];
+    out *= SCALE;
+    out /= (int64_t)(QA * QB);
+
+    return (int)out;
 
 /*
     const __m256i vec_zero = _mm256_setzero_si256();
@@ -745,7 +739,7 @@ void NNUE::debug_simd(const Board& b) {
 
 void NNUE::debug_acc_full(const Accumulator& acc, const std::string& name) const {
     int32_t sum = 0, minv = acc.vals[0], maxv = acc.vals[0];
-    for (int i = 0; i < L0_SIZE; ++i) {
+    for (int i = 0; i < L1_SIZE; ++i) {
         sum += acc.vals[i];
         if (acc.vals[i] < minv) minv = acc.vals[i];
         if (acc.vals[i] > maxv) maxv = acc.vals[i];

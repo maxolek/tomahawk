@@ -67,6 +67,7 @@ struct RootMoveScores {
 class Searcher {
 public:
     // ------------------------------- VARS -------------------------------
+    long long repetition_taint_hits = 0;
 
     // Object-owned state
     //Engine& engine;
@@ -127,7 +128,8 @@ public:
         std::vector<Move>& previousPV,
         SearchLimits& limits,
         int ply,
-        bool can_nmp
+        bool can_nmp,
+        bool& tainted
     );
 
     int quiescence(
@@ -137,7 +139,8 @@ public:
         SearchLimits& limits,
         int ply,
         int depth,
-        int search_depth
+        int search_depth,
+        bool& tainted
     );
 
     // ------------------------------- Ordering & Scoring -------------------------------
