@@ -137,7 +137,7 @@ bool NNUE::load(const fs::path& path) {
     p += sizeof(l2w);
 
     // L2 bias
-    std::memcpy(&l2b, p, sizeof(l1b));
+    std::memcpy(&l2b, p, sizeof(l2b));
     p += sizeof(l2b);
 
     // L3 
@@ -202,7 +202,7 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
     int32_t ntm_activated[L1_SIZE];
     int32_t l1_pair_mul[L1_SIZE];
     int32_t l2_in[L2_SIZE];
-    int32_t l3_in[L3_SIZE];
+    int64_t l3_in[L3_SIZE];
 
     // pre-set output bucket
     const int bucket = output_bucket(occ);
@@ -217,8 +217,8 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
 
         // activate + pairwise multiply (+ concat)
         for (int i = 0; i < L1_SIZE; i++) {
-            stm_activated[i] = crelu(us->vals[i]);
-            ntm_activated[i] = crelu(them->vals[i]);
+            stm_activated[i] = crelu(us->vals[i], QA);
+            ntm_activated[i] = crelu(them->vals[i], QA);
         }
         pairwise_mul(stm_activated, ntm_activated, l1_pair_mul);
         
@@ -237,7 +237,7 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
     // activate (in place)
     // do before to prevent redundant re-computes
     for (int i = 0; i < L2_SIZE; i++)
-        l2_in[i] = screlu(l2_in[i]);
+        l2_in[i] = screlu(l2_in[i], QA*QB);
 
     // weight loop
     for (int o = 0; o < L3_SIZE; o++) {
@@ -247,37 +247,37 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
 
         // feed activates neurons forward to L3 pre-activation
         for (int i = 0; i < L2_SIZE; i++)
-            sum += (int64_t)l2_in[i] * (int32_t)w[i];
-        for (int i = 0; i < L2_SIZE; i++) 
-            sum += (int64_t)l2_in[i] * (int32_t)w[i];
+            sum += (int64_t)l2_in[i] * (int64_t)w[i];
 
         // dequantize, bias, and load
-        sum /= (int64_t)QB; 
+        sum /= (int64_t)(QA * QB); 
         sum += bias; 
-        l3_in[o] = (int32_t)sum;
+        l3_in[o] = sum;
     }
 
     // ===== L3: hidden 2 --> output   =====
 
     // activate
     for (int i = 0; i < L3_SIZE; i++)
-        l3_in[i] = screlu(l3_in[i]);
+        l3_in[i] = screlu(l3_in[i], (int64_t)(QA*QB*QC));
 
     // weight loop
     int64_t out64 = 0;
     for (int i = 0; i < L3_SIZE; i++) 
-        out64 += (int64_t)l3_in[i] * (int32_t)l3w[bucket][i];
+        out64 += (int64_t)l3_in[i] * (int64_t)l3w[bucket][i];
 
     // dequantize, bias, and output
+    out64 /= (int64_t)(QA * QB * QC); // (QA*QB*QC)*(QA*QB*QC)*QC --> QA*QB*QC*QC
     out64 += l3b[bucket];
     out64 *= SCALE;
-    out64 /= (int64_t)(QA * QB);
+    out64 /= (int64_t)(QA * QB * QC * QC);
 
     return out64;
 }
 
 #ifdef _WIN32
-// AVX2 -- 8 int32
+// AVX2 -- 8  int8 / int32
+//      -- 16 int16
 int NNUE::eval_simd(bool is_white_move, U64 occ) {
     #ifdef DEV
         ScopedTimer timer(T_NNUE);
@@ -295,7 +295,7 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
     alignas(32) int32_t l2_in[L2_SIZE];
     alignas(32) int32_t l2_act[L2_SIZE];
     alignas(32) int32_t l3_in[L3_SIZE];
-    alignas(32) int32_t l3_act[L3_SIZE];
+    alignas(32) int64_t l3_act[L3_SIZE];
 
     // pre-set output bucket
     const int bucket = output_bucket(occ);
@@ -337,156 +337,34 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
     // ===== L2: hidden 1 --> hidden 2 =====
 
     // activate
-    activate_screlu(l2_in, l2_act, L2_SIZE, QA);
+    activate_screlu32(l2_in, l2_act, L2_SIZE, QA*QB);
 
     // weight transform
     for (int o = 0; o < L3_SIZE; o++) {
         const int8_t* w = l2w[bucket * L3_SIZE + o];
         const int32_t bias = l2b[bucket * L3_SIZE + o];
-        __m256i acc = _mm256_setzero_si256();
+        
+        int64_t sum = dot_i32_i8_widen(l2_act, w, L2_SIZE);
 
-        for (int i = 0; i < L2_SIZE; i += 8) {
-            __m256i a = _mm256_load_si256(reinterpret_cast<const __m256i*>(&l2_act[i]));
-            __m128i w8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(&w[i]));
-            __m256i w32 = _mm256_cvtepi8_epi32(w8);
-            __m256i product = _mm256_mullo_epi32(a, w32);
-            acc = _mm256_add_epi32(acc, product);
-        }
-
-        int32_t sum = hsum_epi32(acc);
         sum /= (QA * QB); // (QA*QB)*(QA*QB)*QC --> QA*QB*QC
         sum += bias;
-        l3_in[o] = sum; 
+        l3_in[o] = (int32_t)sum; 
     }
 
     // ===== L3: hidden 2 --> output =====
 
     // activate
-    activate_screlu(l3_in, l3_act, L3_SIZE, QA);
+    activate_screlu64(l3_in, l3_act, L3_SIZE, QA*QB*QC);
 
     // weight transform 
-    // single output node ... dont need output loop like above
-    __m256i acc = _mm256_setzero_si256();
-    for (int i = 0; i < L3_SIZE; i += 8) {
-        const int8_t* w = l3w[bucket];
-        __m256i a = _mm256_load_si256(reinterpret_cast<const __m256i*>(&l3_act[i]));
-        __m128i w8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(&w[i]));
-        __m256i w32 = _mm256_cvtepi8_epi32(w8);
-        __m256i product = _mm256_mullo_epi32(a, w32);
-        acc = _mm256_add_epi32(acc, product);
-    }
+    int64_t out = (int64_t)dot_i64_i8(l3_act, l3w[bucket], L3_SIZE);
 
-    int64_t out = (int64_t)hsum_epi32(acc);
     out /= (int64_t)(QA * QB * QC); // (QA*QB*QC)*(QA*QB*QC)*QC --> QA*QB*QC*QC
     out += (int64_t)l3b[bucket];
     out *= SCALE;
-    out /= (int64_t)(QA * QB);
+    out /= (int64_t)(QA * QB * QC * QC);
 
     return (int)out;
-
-/*
-    const __m256i vec_zero = _mm256_setzero_si256();
-    const __m256i vec_qa   = _mm256_set1_epi32(QA);
-
-    const int32_t* us = is_white_move ? acc_stm.vals : acc_ntm.vals;
-    const int32_t* them = is_white_move ? acc_ntm.vals : acc_stm.vals;
-
-    const int bucket = output_bucket(occ);
-    const int16_t* weights = l1w[bucket];
-    const int32_t bias = l1b[bucket];
-
-    __m256i sum = _mm256_setzero_si256();
-
-    // 8 neurons batched at once (~8x faster than scalar)
-    for (int i = 0; i < L0_SIZE; i += 8) {
-        // Load 8 accumulator values (int32)
-        __m256i us_acc = _mm256_loadu_si256(
-            reinterpret_cast<const __m256i*>(us + i)
-        );
-        __m256i them_acc = _mm256_loadu_si256(
-            reinterpret_cast<const __m256i*>(them + i)
-        );
-
-        // ScreLU = clamp(x, 0, QA)^2
-        us_acc = _mm256_min_epi32(
-            _mm256_max_epi32(us_acc, vec_zero),
-            vec_qa
-        );
-        them_acc = _mm256_min_epi32(
-            _mm256_max_epi32(them_acc, vec_zero),
-            vec_qa
-        );
-
-        __m256i us_sq = _mm256_mullo_epi32(us_acc, us_acc);
-        __m256i them_sq = _mm256_mullo_epi32(them_acc, them_acc);
-
-        // Load weights (int16 extended to int32)
-        __m128i us_w16 = _mm_loadu_si128(
-            reinterpret_cast<const __m128i*>(weights + i)
-        );
-        __m128i them_w16 = _mm_loadu_si128(
-            reinterpret_cast<const __m128i*>(weights + L0_SIZE + i)
-        );
-        __m256i us_w = _mm256_cvtepi16_epi32(us_w16);
-        __m256i them_w = _mm256_cvtepi16_epi32(them_w16);
-
-        // ------------------------------------------------------------
-        // Multiply even lanes:
-        // lanes 0,2,4,6
-        // _mm256_mul_epi32 gives signed int32 * int32 -> int64
-        // ------------------------------------------------------------
-
-        __m256i us_even = _mm256_mul_epi32(us_sq, us_w);
-        __m256i them_even = _mm256_mul_epi32(them_sq, them_w);
-
-        sum = _mm256_add_epi64(sum, us_even);
-        sum = _mm256_add_epi64(sum, them_even);
-
-        // ------------------------------------------------------------
-        // Multiply odd lanes:
-        // shift each 64-bit pair right by 32 so that
-        // elements 1,3,5,7 become the low 32 bits.
-        // ------------------------------------------------------------
-
-        __m256i us_sq_odd = _mm256_srli_epi64(us_sq, 32);
-        __m256i us_w_odd = _mm256_srli_epi64(us_w, 32);
-
-        __m256i them_sq_odd = _mm256_srli_epi64(them_sq, 32);
-        __m256i them_w_odd = _mm256_srli_epi64(them_w, 32);
-
-        __m256i us_odd = _mm256_mul_epi32(us_sq_odd, us_w_odd);
-        __m256i them_odd = _mm256_mul_epi32(them_sq_odd, them_w_odd);
-
-        sum = _mm256_add_epi64(sum, us_odd);
-        sum = _mm256_add_epi64(sum, them_odd);
-    }
-
-    // ------------------------------------------------------------
-    // Horizontal sum of 4 x int64
-    // ------------------------------------------------------------
-
-    __m128i lo = _mm256_castsi256_si128(sum);
-    __m128i hi = _mm256_extracti128_si256(sum, 1);
-
-    __m128i total128 = _mm_add_epi64(lo, hi);
-
-    int64_t total =
-        _mm_cvtsi128_si64(total128) +
-        _mm_extract_epi64(total128, 1);
-
-    // ------------------------------------------------------------
-    // Match scalar evaluate() exactly
-    // ------------------------------------------------------------
-
-    int64_t out64 = total;
-
-    out64 /= (int64_t)QA;
-    out64 += (int64_t)bias;
-    out64 *= SCALE;
-    out64 /= (int64_t)(QA * QB);
-
-    return (int)out64;
-*/
 }
 #endif
 
