@@ -597,15 +597,34 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
 #ifdef _WIN32
 void NNUE::debug_simd(const Board& b) {
     build_halfka_accumulators(b);
-    int eval_scalar = evaluate(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
-    int _eval_simd = eval_simd(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
+    U64 occ = b.colorBitboards[0] | b.colorBitboards[1];
 
-    if (eval_scalar != _eval_simd) {
-        std::cerr << "[NNUE DEBUG] SIMD mismatch: "
-                  << "\n scalar=" << eval_scalar
-                  << "\n simd=" << _eval_simd << "\n";
-        abort();
+    // --- scalar l1_out ---
+    Accumulator* us = b.is_white_move ? &acc_stm : &acc_ntm;
+    Accumulator* them = b.is_white_move ? &acc_ntm : &acc_stm;
+    int32_t stm_act[L1_SIZE], ntm_act[L1_SIZE], l1_scalar[L1_SIZE];
+    for (int i = 0; i < L1_SIZE; i++) {
+        stm_act[i] = crelu(us->vals[i], QA);
+        ntm_act[i] = crelu(them->vals[i], QA);
     }
+    pairwise_mul(stm_act, ntm_act, l1_scalar);
+
+    // --- simd l1_out ---
+    alignas(32) int16_t us_act16[L1_SIZE], them_act16[L1_SIZE];
+    alignas(32) int32_t l1_simd[L1_SIZE];
+    activate_crelu(us->vals, us_act16, L1_SIZE, QA);
+    activate_crelu(them->vals, them_act16, L1_SIZE, QA);
+    pairwise_mul_simd(us_act16, them_act16, l1_simd);
+
+    int mismatches = 0;
+    for (int i = 0; i < L1_SIZE; i++) {
+        if (l1_scalar[i] != l1_simd[i]) {
+            if (mismatches < 10)
+                std::cerr << "l1_out mismatch @" << i << " scalar=" << l1_scalar[i] << " simd=" << l1_simd[i] << "\n";
+            mismatches++;
+        }
+    }
+    std::cerr << "total l1_out mismatches: " << mismatches << " / " << L1_SIZE << "\n";
 }
 #endif
 

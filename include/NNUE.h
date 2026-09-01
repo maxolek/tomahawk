@@ -18,6 +18,7 @@
 // ============================================================
 
 // bucketing
+/*
 constexpr int NUM_INPUT_BUCKETS = 10;
 constexpr int NUM_OUTPUT_BUCKETS = 8;
 constexpr int OUTPUT_BUCKET_DIVISOR = (32 + NUM_OUTPUT_BUCKETS - 1) / NUM_OUTPUT_BUCKETS;
@@ -44,6 +45,7 @@ constexpr int QA = 127; // L0 (feature-transformer) [must fit in screlu int32]
 constexpr int QB = 64;  // L1 weights
 constexpr int QC = 64;  // L2+3 weights
 constexpr int SCALE = 400;
+*/
 
 // ============================================================
 // external exposure funcs +++ helpera
