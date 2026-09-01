@@ -211,9 +211,17 @@ inline void activate_screlu64(const int32_t* in, int64_t* out, int size, int32_t
         __m256i lo = _mm256_mul_epi32(v, v);                                    // squares elements 0,2,4,6 -> 64-bit
         __m256i hi = _mm256_mul_epi32(_mm256_srli_si256(v, 4), _mm256_srli_si256(v, 4)); // elements 1,3,5,7
 
-        // interleave lo/hi back into correct order for a contiguous int64 output
-        _mm256_store_si256(reinterpret_cast<__m256i*>(out + i),     _mm256_unpacklo_epi64(lo, hi));
-        _mm256_store_si256(reinterpret_cast<__m256i*>(out + i + 4), _mm256_unpackhi_epi64(lo, hi));
+        // unpacklo/hi only interleave within each 128-bit half:
+        //   u_lo = [v0²,v1²,v4²,v5²]   u_hi = [v2²,v3²,v6²,v7²]
+        __m256i u_lo = _mm256_unpacklo_epi64(lo, hi);
+        __m256i u_hi = _mm256_unpackhi_epi64(lo, hi);
+
+        // reassemble across the 128-bit boundary to get true sequential order
+        __m256i out_lo = _mm256_permute2x128_si256(u_lo, u_hi, 0x20); // v0²,v1²,v2²,v3²
+        __m256i out_hi = _mm256_permute2x128_si256(u_lo, u_hi, 0x31); // v4²,v5²,v6²,v7²
+        
+        _mm256_store_si256(reinterpret_cast<__m256i*>(out + i),     out_lo);
+        _mm256_store_si256(reinterpret_cast<__m256i*>(out + i + 4), out_hi);
     }
 }
 

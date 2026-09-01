@@ -315,7 +315,7 @@ void UCI::handlePosition(std::istringstream& iss)
     }
 
     engine->setPosition(fen, moves);
-    engine->nnue.debug_simd(engine->game_board);
+    //engine->nnue.debug_simd(engine->game_board);
 }
 
 void UCI::handleGo(std::istringstream& iss) {
