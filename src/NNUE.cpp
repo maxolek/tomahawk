@@ -276,8 +276,10 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
 }
 
 #ifdef _WIN32
-// AVX2 -- 8  int8 / int32
+// AVX2 -- 32 int8
 //      -- 16 int16
+//      -- 8  int32
+//      -- 4  int64
 int NNUE::eval_simd(bool is_white_move, U64 occ) {
     #ifdef DEV
         ScopedTimer timer(T_NNUE);
@@ -317,18 +319,10 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
     for (int o = 0; o < L2_SIZE; o++) {
         const int8_t* w = l1w[bucket * L2_SIZE + o];
         const int32_t bias = l1b[bucket * L2_SIZE + o];
-        __m256i acc = _mm256_setzero_si256();
 
-        for (int i = 0; i < L1_SIZE; i += 8) {
-            __m256i a = _mm256_load_si256(reinterpret_cast<const __m256i*>(&l1_out[i]));
-            __m128i w8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(&w[i]));
-            __m256i w32 = _mm256_cvtepi8_epi32(w8);
-            __m256i product = _mm256_mullo_epi32(a, w32);
-            acc = _mm256_add_epi32(acc, product);
-        }
-        
         // create layer nodes (pre-activation)
-        int32_t sum = hsum_epi32(acc);
+        int64_t sum = dot_i32_i8_widen(l1_out, w, L1_SIZE);
+
         sum /= QA; // (QA*QA)*QB --> QA*QB
         sum += bias;
         l2_in[o] = sum;
