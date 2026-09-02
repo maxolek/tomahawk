@@ -6,7 +6,7 @@
 #include "helpers.h"
 #include "stats.h"
 #include "timer.h"
-#include "NNUE.h"
+#include "nnue.h"
 #include "tt.h"
 #include "moveGenerator.h"
 

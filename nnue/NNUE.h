@@ -17,8 +17,12 @@
 // Network Dimensions
 // ============================================================
 
+// stored in simd.h
+//  since that is imported here but not vice versa
+
+/* --------------- BIG NET ---------------------
+
 // bucketing
-/*
 constexpr int NUM_INPUT_BUCKETS = 10;
 constexpr int NUM_OUTPUT_BUCKETS = 8;
 constexpr int OUTPUT_BUCKET_DIVISOR = (32 + NUM_OUTPUT_BUCKETS - 1) / NUM_OUTPUT_BUCKETS;
@@ -44,6 +48,37 @@ constexpr int L3_SIZE = 32;
 constexpr int QA = 127; // L0 (feature-transformer) [must fit in screlu int32]
 constexpr int QB = 64;  // L1 weights
 constexpr int QC = 64;  // L2+3 weights
+constexpr int SCALE = 400;
+*/
+
+/* --------- SMALL NET -------------------
+
+    the simd for this is also not as tightly optimized as the larger net
+    but is preserved with _smallnet suffixes instead of _simd in simd.h
+
+// bucketing
+constexpr int NUM_INPUT_BUCKETS = 10;
+constexpr int NUM_OUTPUT_BUCKETS = 8;
+constexpr int OUTPUT_BUCKET_DIVISOR = (32 + NUM_OUTPUT_BUCKETS - 1) / NUM_OUTPUT_BUCKETS;
+
+constexpr int FILE_GROUP[8] = {0, 1, 2, 3, 3, 2, 1, 0};
+constexpr int BUCKET_LAYOUT[32] = {
+    0, 1, 2, 3,
+    4, 4, 5, 5,
+    6, 6, 6, 6,
+    7, 7, 7, 7,
+    8, 8, 8, 8,
+    8, 8, 8, 8,
+    9, 9, 9, 9,
+    9, 9, 9, 9
+};
+
+constexpr int INPUT_SIZE  = 768 * NUM_INPUT_BUCKETS;   // (chessbucketgsmirrored) 10 horizontal king buckets
+constexpr int HIDDEN_SIZE = 1024;   // Hidden dimension
+
+// Quantisation factors used in training
+constexpr int QA = 255;
+constexpr int QB = 64;
 constexpr int SCALE = 400;
 */
 
@@ -215,9 +250,8 @@ public:
     // during tracking stm=white and ntm=black always
     // flipped appropriately during eval for [stm,ntm] actual [us/them] concat
     //      changed to pointers for integration with DEBUG class
-    Accumulator acc_stm_storage, acc_ntm_storage;
-    Accumulator* acc_stm = &acc_stm_storage;
-    Accumulator* acc_ntm = &acc_stm_storage;
+    Accumulator acc_stm;
+    Accumulator acc_ntm;
   
     // ========== L0: 768xINPUT_BUCKETS → 512 ==========
     // Stored column-major: W0[feature][hidden]
@@ -248,6 +282,7 @@ public:
     int evaluate(bool is_white_move, U64 occ); 
     int eval_simd(bool is_white_move, U64 occ);
     int full_eval(const Board& b);
+    //int eval_smallnet(bool is_white_move, U64 occ)
 
     // Incremental updates for search
     void on_make_move(const Board& board, const Move& mv);

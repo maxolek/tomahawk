@@ -106,17 +106,6 @@ bool NNUE::load(const fs::path& path) {
     return true;
 }
 
-// ACCUMULATOR HELPERS
-
-void NNUE::set_accumulators(Accumulator* stm, Accumulator* ntm) {
-    acc_stm = stm;
-    acc_ntm = ntm;
-}
-
-void NNUE::reset_accumulators() {
-    acc_stm = &acc_stm_storage;
-    acc_ntm = &acc_ntm_storage;
-}
 
 // ============================================================
 // Build accumulators fully from board (STM/NTM)
@@ -126,8 +115,8 @@ void NNUE::build_halfka_accumulators(const Board& b) {
     int w_king_sq = b.kingSquare(true);
     int b_king_sq = b.kingSquare(false);
 
-    acc_stm->init_bias(l0b);
-    acc_ntm->init_bias(l0b);
+    acc_stm.init_bias(l0b);
+    acc_ntm.init_bias(l0b);
 
     U64 bb = b.colorBitboards[0] | b.colorBitboards[1];
     const int base_stm = stm_base(w_king_sq);
@@ -145,8 +134,8 @@ void NNUE::build_halfka_accumulators(const Board& b) {
         int stm_f = feature_index_stm_halfka(sq_idx, pc, pc_c, base_stm, flip_stm);
         int ntm_f = feature_index_ntm_halfka(sq_idx, pc, pc_c, base_ntm, flip_ntm);
 
-        acc_stm->add_feature(stm_f, l0w);
-        acc_ntm->add_feature(ntm_f, l0w);
+        acc_stm.add_feature(stm_f, l0w);
+        acc_ntm.add_feature(ntm_f, l0w);
 
     }
 
@@ -162,8 +151,8 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
 
     // ordering for dual-perspective network
     // concat( us, them )
-    Accumulator* us = is_white_move ? acc_stm : acc_ntm;
-    Accumulator* them = is_white_move ? acc_ntm : acc_stm;
+    Accumulator* us = is_white_move ? &acc_stm : &acc_ntm;
+    Accumulator* them = is_white_move ? &acc_ntm : &acc_stm;
 
     // pre-set layer array
     int32_t stm_activated[L1_SIZE];
@@ -175,7 +164,24 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
     // pre-set output bucket
     const int bucket = output_bucket(occ);
 
-    // ===== L1: accumulator --> hidden 1 =====
+    /* SMALL NET
+
+    int64_t out64 = 0;
+    // activate, then multiple by weight and add to output (node)
+    for (int i = 0; i < HIDDEN_SIZE; ++i)
+        out64 += (int64_t)screlu(us->vals[i]) * (int32_t)weights[i];
+    for (int i = 0; i < HIDDEN_SIZE; ++i)
+        out64 += (int64_t)screlu(them->vals[i]) * (int32_t)weights[HIDDEN_SIZE + i];
+
+    out64 /= (int64_t)QA;
+    out64 += (int64_t)bias;
+    out64 *= SCALE;
+    out64 /= (int64_t)(QA * QB);
+
+    return out64;
+    */
+
+    // ===== L1: accumulator -. hidden 1 =====
 
     // output vector loop
     for (int o = 0; o < L2_SIZE; o++) {
@@ -200,7 +206,7 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
         l2_in[o] = (int32_t)sum;
     }
 
-    // ===== L2: hidden 1 --> hidden 2 =====
+    // ===== L2: hidden 1 -. hidden 2 =====
 
     // activate (in place)
     // do before to prevent redundant re-computes
@@ -223,7 +229,7 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
         l3_in[o] = sum;
     }
 
-    // ===== L3: hidden 2 --> output   =====
+    // ===== L3: hidden 2 -. output   =====
 
     // activate
     for (int i = 0; i < L3_SIZE; i++)
@@ -235,7 +241,7 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
         out64 += (int64_t)l3_in[i] * (int64_t)l3w[bucket][i];
 
     // dequantize, bias, and output
-    out64 /= (int64_t)(QA * QB * QC); // (QA*QB*QC)*(QA*QB*QC)*QC --> QA*QB*QC*QC
+    out64 /= (int64_t)(QA * QB * QC); // (QA*QB*QC)*(QA*QB*QC)*QC -. QA*QB*QC*QC
     out64 += l3b[bucket];
     out64 *= SCALE;
     out64 /= (int64_t)(QA * QB * QC * QC);
@@ -255,8 +261,8 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
 
     // ordering for dual-perspective network
     // concat( us, them )
-    Accumulator* us = is_white_move ? acc_stm : acc_ntm;
-    Accumulator* them = is_white_move ? acc_ntm : acc_stm;
+    Accumulator* us = is_white_move ? &acc_stm : &acc_ntm;
+    Accumulator* them = is_white_move ? &acc_ntm : &acc_stm;
 
     // pre-set layer array
     alignas(32) int16_t us_act[L1_SIZE];
@@ -270,7 +276,7 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
     // pre-set output bucket
     const int bucket = output_bucket(occ);
 
-    // ===== L1: accumulator --> hidden 1 =====
+    // ===== L1: accumulator -. hidden 1 =====
 
     // activate accumulator values
     // Crelu instead of SCrelu since pairwise mult gives us non-linearity
@@ -291,12 +297,12 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
         // create layer nodes (pre-activation)
         int64_t sum = dot_i32_i8_widen(l1_out, w, L1_SIZE);
 
-        sum /= QA; // (QA*QA)*QB --> QA*QB
+        sum /= QA; // (QA*QA)*QB -. QA*QB
         sum += bias;
         l2_in[o] = sum;
     }
 
-    // ===== L2: hidden 1 --> hidden 2 =====
+    // ===== L2: hidden 1 -. hidden 2 =====
 
     // activate
     activate_screlu32(l2_in, l2_act, L2_SIZE, QA*QB);
@@ -308,12 +314,12 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
         
         int64_t sum = dot_i32_i8_widen(l2_act, w, L2_SIZE);
 
-        sum /= (QA * QB); // (QA*QB)*(QA*QB)*QC --> QA*QB*QC
+        sum /= (QA * QB); // (QA*QB)*(QA*QB)*QC -. QA*QB*QC
         sum += bias;
         l3_in[o] = (int32_t)sum; 
     }
 
-    // ===== L3: hidden 2 --> output =====
+    // ===== L3: hidden 2 -. output =====
 
     // activate
     activate_screlu64(l3_in, l3_act, L3_SIZE, QA*QB*QC);
@@ -321,7 +327,7 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
     // weight transform 
     int64_t out = (int64_t)dot_i64_i8(l3_act, l3w[bucket], L3_SIZE);
 
-    out /= (int64_t)(QA * QB * QC); // (QA*QB*QC)*(QA*QB*QC)*QC --> QA*QB*QC*QC
+    out /= (int64_t)(QA * QB * QC); // (QA*QB*QC)*(QA*QB*QC)*QC -. QA*QB*QC*QC
     out += (int64_t)l3b[bucket];
     out *= SCALE;
     out /= (int64_t)(QA * QB * QC * QC);
@@ -337,6 +343,118 @@ int NNUE::full_eval(const Board& b) {
         (b.colorBitboards[0] | b.colorBitboards[1])
     );
 }
+
+/*
+// ---------- small net -----------------
+
+int NNUE::eval_smallnet(bool is_white_move, U64 occ) {
+    #ifdef DEV
+        ScopedTimer timer(T_NNUE);
+    #endif
+
+    const __m256i vec_zero = _mm256_setzero_si256();
+    const __m256i vec_qa   = _mm256_set1_epi32(QA);
+
+    const int32_t* us = is_white_move ? acc_stm.vals : acc_ntm.vals;
+    const int32_t* them = is_white_move ? acc_ntm.vals : acc_stm.vals;
+
+    const int bucket = output_bucket(occ);
+    const int16_t* weights = l1w[bucket];
+    const int32_t bias = l1b[bucket];
+
+    __m256i sum = _mm256_setzero_si256();
+
+    // 8 neurons batched at once (~8x faster than scalar)
+    for (int i = 0; i < HIDDEN_SIZE; i += 8) {
+        // Load 8 accumulator values (int32)
+        __m256i us_acc = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(us + i)
+        );
+        __m256i them_acc = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(them + i)
+        );
+
+        // ScreLU = clamp(x, 0, QA)^2
+        us_acc = _mm256_min_epi32(
+            _mm256_max_epi32(us_acc, vec_zero),
+            vec_qa
+        );
+        them_acc = _mm256_min_epi32(
+            _mm256_max_epi32(them_acc, vec_zero),
+            vec_qa
+        );
+
+        __m256i us_sq = _mm256_mullo_epi32(us_acc, us_acc);
+        __m256i them_sq = _mm256_mullo_epi32(them_acc, them_acc);
+
+        // Load weights (int16 extended to int32)
+        __m128i us_w16 = _mm_loadu_si128(
+            reinterpret_cast<const __m128i*>(weights + i)
+        );
+        __m128i them_w16 = _mm_loadu_si128(
+            reinterpret_cast<const __m128i*>(weights + HIDDEN_SIZE + i)
+        );
+        __m256i us_w = _mm256_cvtepi16_epi32(us_w16);
+        __m256i them_w = _mm256_cvtepi16_epi32(them_w16);
+
+        // ------------------------------------------------------------
+        // Multiply even lanes:
+        // lanes 0,2,4,6
+        // _mm256_mul_epi32 gives signed int32 * int32 -> int64
+        // ------------------------------------------------------------
+
+        __m256i us_even = _mm256_mul_epi32(us_sq, us_w);
+        __m256i them_even = _mm256_mul_epi32(them_sq, them_w);
+
+        sum = _mm256_add_epi64(sum, us_even);
+        sum = _mm256_add_epi64(sum, them_even);
+
+        // ------------------------------------------------------------
+        // Multiply odd lanes:
+        // shift each 64-bit pair right by 32 so that
+        // elements 1,3,5,7 become the low 32 bits.
+        // ------------------------------------------------------------
+
+        __m256i us_sq_odd = _mm256_srli_epi64(us_sq, 32);
+        __m256i us_w_odd = _mm256_srli_epi64(us_w, 32);
+
+        __m256i them_sq_odd = _mm256_srli_epi64(them_sq, 32);
+        __m256i them_w_odd = _mm256_srli_epi64(them_w, 32);
+
+        __m256i us_odd = _mm256_mul_epi32(us_sq_odd, us_w_odd);
+        __m256i them_odd = _mm256_mul_epi32(them_sq_odd, them_w_odd);
+
+        sum = _mm256_add_epi64(sum, us_odd);
+        sum = _mm256_add_epi64(sum, them_odd);
+    }
+
+    // ------------------------------------------------------------
+    // Horizontal sum of 4 x int64
+    // ------------------------------------------------------------
+
+    __m128i lo = _mm256_castsi256_si128(sum);
+    __m128i hi = _mm256_extracti128_si256(sum, 1);
+
+    __m128i total128 = _mm_add_epi64(lo, hi);
+
+    int64_t total =
+        _mm_cvtsi128_si64(total128) +
+        _mm_extract_epi64(total128, 1);
+
+    // ------------------------------------------------------------
+    // Match scalar evaluate() exactly
+    // ------------------------------------------------------------
+
+    int64_t out64 = total;
+
+    out64 /= (int64_t)QA;
+    out64 += (int64_t)bias;
+    out64 *= SCALE;
+    out64 /= (int64_t)(QA * QB);
+
+    return (int)out64;
+}
+*/
 
 // ============================================================
 // Incremental updates (STM/NTM)
@@ -373,11 +491,11 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
     // ---- Update both POV accumulators for the moved piece ----
     //acc_stm.remove_feature(f_from_stm, l0w);
     //acc_stm.add_feature(f_to_stm, l0w);
-    acc_stm->add_sub_feature(f_to_stm, f_from_stm, l0w);
+    acc_stm.add_sub_feature(f_to_stm, f_from_stm, l0w);
 
     //acc_ntm.remove_feature(f_from_ntm, l0w);
     //acc_ntm.add_feature(f_to_ntm, l0w);
-    acc_ntm->add_sub_feature(f_to_ntm, f_from_ntm, l0w);
+    acc_ntm.add_sub_feature(f_to_ntm, f_from_ntm, l0w);
 
     // Promotion: replace pawn feature with promoted piece (both POVs)
     if (promo) {
@@ -388,11 +506,11 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
         // remove pawn entry we just added, then add promoted piece
         //acc_stm.remove_feature(f_to_stm, l0w);
         //acc_stm.add_feature(f_promo_stm, l0w);
-        acc_stm->add_sub_feature(f_promo_stm, f_to_stm, l0w);
+        acc_stm.add_sub_feature(f_promo_stm, f_to_stm, l0w);
 
         //acc_ntm.remove_feature(f_to_ntm, l0w);
         //acc_ntm.add_feature(f_promo_ntm, l0w);
-        acc_ntm->add_sub_feature(f_promo_ntm, f_to_ntm, l0w);
+        acc_ntm.add_sub_feature(f_promo_ntm, f_to_ntm, l0w);
     }
 
     // ---- Captured piece: remove from BOTH accumulators ----
@@ -402,8 +520,8 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
         int cap_color = other_color(piece_color);
         int f_cap_ntm = feature_index_ntm_halfka(mv.TargetSquare(), captured_piece, cap_color, base_ntm, flip_ntm);
         int f_cap_stm = feature_index_stm_halfka(mv.TargetSquare(), captured_piece, cap_color, base_stm, flip_stm);
-        acc_ntm->remove_feature(f_cap_ntm, l0w);
-        acc_stm->remove_feature(f_cap_stm, l0w);
+        acc_ntm.remove_feature(f_cap_ntm, l0w);
+        acc_stm.remove_feature(f_cap_stm, l0w);
     }
 
     // ---- En passant: captured pawn is on cap_sq (remove from BOTH) ----
@@ -412,8 +530,8 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
         int cap_color = other_color(piece_color);
         int f_cap_ntm = feature_index_ntm_halfka(cap_sq, pawn, cap_color, base_ntm, flip_ntm);
         int f_cap_stm = feature_index_stm_halfka(cap_sq, pawn, cap_color, base_stm, flip_stm);
-        acc_ntm->remove_feature(f_cap_ntm, l0w);
-        acc_stm->remove_feature(f_cap_stm, l0w);
+        acc_ntm.remove_feature(f_cap_ntm, l0w);
+        acc_stm.remove_feature(f_cap_stm, l0w);
     }
 
     // ---- Castling rook: update both POVs for rook from/to ----
@@ -489,19 +607,19 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
 
         //acc_stm.remove_feature(f_promo_stm, l0w);
         //acc_stm.add_feature(f_pawn_stm, l0w);
-        acc_stm->add_sub_feature(f_pawn_stm, f_promo_stm, l0w);
+        acc_stm.add_sub_feature(f_pawn_stm, f_promo_stm, l0w);
         //acc_ntm.remove_feature(f_promo_ntm, l0w);
         //acc_ntm.add_feature(f_pawn_ntm, l0w);
-        acc_ntm->add_sub_feature(f_pawn_ntm, f_promo_ntm, l0w);
+        acc_ntm.add_sub_feature(f_pawn_ntm, f_promo_ntm, l0w);
     } else {
         // Normal move
         //std::cout << "  Normal: remove to_idx=" << f_to_stm << " add from_idx=" << f_from_stm << "\n";
         //acc_stm.remove_feature(f_to_stm, l0w);
         //acc_stm.add_feature(f_from_stm, l0w);
-        acc_stm->add_sub_feature(f_from_stm, f_to_stm, l0w);
+        acc_stm.add_sub_feature(f_from_stm, f_to_stm, l0w);
         //acc_ntm.remove_feature(f_to_ntm, l0w);
         //acc_ntm.add_feature(f_from_ntm, l0w);
-        acc_ntm->add_sub_feature(f_from_ntm, f_to_ntm, l0w);
+        acc_ntm.add_sub_feature(f_from_ntm, f_to_ntm, l0w);
     }
 
     // Undo captures
@@ -518,8 +636,8 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
         //           << " f_stm=" << f_cap_stm
         //           << " f_ntm=" << f_cap_ntm << "\n";
 
-        acc_stm->add_feature(f_cap_stm, l0w);
-        acc_ntm->add_feature(f_cap_ntm, l0w);
+        acc_stm.add_feature(f_cap_stm, l0w);
+        acc_ntm.add_feature(f_cap_ntm, l0w);
     }
 
     // Undo en passant
@@ -531,8 +649,8 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
         int f_cap_stm = feature_index_stm_halfka(cap_sq, pawn, cap_color, base_stm, flip_stm);
         int f_cap_ntm = feature_index_ntm_halfka(cap_sq, pawn, cap_color, base_ntm, flip_ntm);
 
-        acc_stm->add_feature(f_cap_stm, l0w);
-        acc_ntm->add_feature(f_cap_ntm, l0w);
+        acc_stm.add_feature(f_cap_stm, l0w);
+        acc_ntm.add_feature(f_cap_ntm, l0w);
     }
 
 
@@ -569,12 +687,12 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
 
 #ifdef _WIN32
 void NNUE::debug_simd(const Board& b) {
-    _nnue.build_halfka_accumulators(b);
+    build_halfka_accumulators(b);
     U64 occ = b.colorBitboards[0] | b.colorBitboards[1];
     const int bucket = output_bucket(occ);
 
-    Accumulator* us   = b.is_white_move ? _nnue.acc_stm : _nnue.acc_ntm;
-    Accumulator* them = b.is_white_move ? _nnue.acc_ntm : _nnue.acc_stm;
+    Accumulator* us   = b.is_white_move ? &acc_stm : &acc_ntm;
+    Accumulator* them = b.is_white_move ? &acc_ntm : &acc_stm;
 
     // ============================================================
     // Stage 1: L1 activation (crelu)
@@ -620,12 +738,12 @@ void NNUE::debug_simd(const Board& b) {
     std::cerr << "L1 pairwise_mul mismatches: " << mm_pair << " / " << L1_SIZE << "\n";
 
     // ============================================================
-    // Stage 3: L1 -> L2 (dot product with l1w, dequant + bias)
+    // Stage 3: L1 . L2 (dot product with l1w, dequant + bias)
     // ============================================================
     int32_t l2_in_s[L2_SIZE], l2_in_v[L2_SIZE];
     for (int o = 0; o < L2_SIZE; o++) {
-        const int8_t* w = _nnue.l1w[bucket * L2_SIZE + o];
-        const int32_t bias = _nnue.l1b[bucket * L2_SIZE + o];
+        const int8_t* w = l1w[bucket * L2_SIZE + o];
+        const int32_t bias = l1b[bucket * L2_SIZE + o];
 
         int64_t sum_s = 0;
         for (int i = 0; i < L1_SIZE; i++)
@@ -643,12 +761,12 @@ void NNUE::debug_simd(const Board& b) {
     int mm_l2in = 0;
     for (int i = 0; i < L2_SIZE; i++) {
         if (l2_in_s[i] != l2_in_v[i]) {
-            std::cerr << "L1->L2 dot mismatch @" << i
+            std::cerr << "L1.L2 dot mismatch @" << i
                        << " scalar=" << l2_in_s[i] << " simd=" << l2_in_v[i] << "\n";
             mm_l2in++;
         }
     }
-    std::cerr << "L1->L2 dot mismatches: " << mm_l2in << " / " << L2_SIZE << "\n";
+    std::cerr << "L1.L2 dot mismatches: " << mm_l2in << " / " << L2_SIZE << "\n";
 
     // ============================================================
     // Stage 4: L2 activation (screlu)
@@ -670,13 +788,13 @@ void NNUE::debug_simd(const Board& b) {
     std::cerr << "L2 activation mismatches: " << mm_act2 << " / " << L2_SIZE << "\n";
 
     // ============================================================
-    // Stage 5: L2 -> L3 (dot product with l2w, dequant + bias)
+    // Stage 5: L2 . L3 (dot product with l2w, dequant + bias)
     // ============================================================
     int64_t l3_in_s[L3_SIZE];
     int32_t l3_in_v[L3_SIZE];
     for (int o = 0; o < L3_SIZE; o++) {
-        const int8_t* w = _nnue.l2w[bucket * L3_SIZE + o];
-        const int32_t bias = _nnue.l2b[bucket * L3_SIZE + o];
+        const int8_t* w = l2w[bucket * L3_SIZE + o];
+        const int32_t bias = l2b[bucket * L3_SIZE + o];
 
         int64_t sum_s = 0;
         for (int i = 0; i < L2_SIZE; i++)
@@ -694,12 +812,12 @@ void NNUE::debug_simd(const Board& b) {
     int mm_l3in = 0;
     for (int i = 0; i < L3_SIZE; i++) {
         if (l3_in_s[i] != (int64_t)l3_in_v[i]) {
-            std::cerr << "L2->L3 dot mismatch @" << i
+            std::cerr << "L2.L3 dot mismatch @" << i
                        << " scalar=" << l3_in_s[i] << " simd=" << l3_in_v[i] << "\n";
             mm_l3in++;
         }
     }
-    std::cerr << "L2->L3 dot mismatches: " << mm_l3in << " / " << L3_SIZE << "\n";
+    std::cerr << "L2.L3 dot mismatches: " << mm_l3in << " / " << L3_SIZE << "\n";
 
     // ============================================================
     // Stage 6: L3 activation (screlu, 64-bit)
@@ -721,19 +839,19 @@ void NNUE::debug_simd(const Board& b) {
     std::cerr << "L3 activation mismatches: " << mm_act3 << " / " << L3_SIZE << "\n";
 
     // ============================================================
-    // Stage 7: L3 -> output (dot product with l3w, dequant + bias + scale)
+    // Stage 7: L3 . output (dot product with l3w, dequant + bias + scale)
     // ============================================================
     int64_t out_s = 0;
     for (int i = 0; i < L3_SIZE; i++)
-        out_s += (int64_t)l3_act_s[i] * (int64_t)_nnue.l3w[bucket][i];
+        out_s += (int64_t)l3_act_s[i] * (int64_t)l3w[bucket][i];
     out_s /= (int64_t)(QA * QB * QC);
-    out_s += _nnue.l3b[bucket];
+    out_s += l3b[bucket];
     out_s *= SCALE;
     out_s /= (int64_t)(QA * QB * QC * QC);
 
-    int64_t out_v = dot_i64_i8(l3_act_v, _nnue.l3w[bucket], L3_SIZE);
+    int64_t out_v = dot_i64_i8(l3_act_v, l3w[bucket], L3_SIZE);
     out_v /= (int64_t)(QA * QB * QC);
-    out_v += (int64_t)_nnue.l3b[bucket];
+    out_v += (int64_t)l3b[bucket];
     out_v *= SCALE;
     out_v /= (int64_t)(QA * QB * QC * QC);
 
@@ -762,12 +880,12 @@ void NNUE::debug_acc_full(const Accumulator& acc, const std::string& name) const
 }
 
 int NNUE::evaluate_debug(bool is_white_move) const {
-    debug_acc_full(_nnue.acc_stm, "STM before screlu");
-    debug_acc_full(_nnue.acc_ntm, "NTM before screlu");
+    debug_acc_full(acc_stm, "STM before screlu");
+    debug_acc_full(acc_ntm, "NTM before screlu");
 
-    debug_evaluate(_nnue.acc_stm, _nnue.acc_ntm);
+    debug_evaluate(acc_stm, acc_ntm);
 
-    //return _nnue.evaluate(is_white_move);
+    //return NNUE::evaluate(is_white_move);
     return 0;
 }
 
@@ -851,29 +969,26 @@ void NNUE::debug_check_incr_vs_full_after_make(
     Board b_after = before;
     b_after.MakeMove(mv);
 
-    // Remember the real production pointers.
-    Accumulator* real_stm = _nnue.acc_stm;
-    Accumulator* real_ntm = _nnue.acc_ntm;
+    // Remember the real production accumulator values.
+    Accumulator real_stm = acc_stm;
+    Accumulator real_ntm = acc_ntm;
 
-    // Local copies to mutate incrementally.
-    Accumulator acc_stm_incr = *real_stm;
-    Accumulator acc_ntm_incr = *real_ntm;
-    _nnue.set_accumulators(&acc_stm_incr, &acc_ntm_incr);
-
+    // Simulate production incremental MAKE directly on the
+    // production accumulators, then snapshot the result.
     if (is_king_move)
-        _nnue.build_halfka_accumulators(b_after);
+        build_halfka_accumulators(b_after);
     else
-        _nnue.on_make_move_halfka(before, mv);
-    // acc_stm_incr / acc_ntm_incr are now updated -- no capture step needed
+        on_make_move_halfka(before, mv);
 
-    _nnue.reset_accumulators();   // back to production pointers
+    Accumulator acc_stm_incr = acc_stm;
+    Accumulator acc_ntm_incr = acc_ntm;
 
     // Independent full rebuild, unchanged from before
     Accumulator acc_stm_full, acc_ntm_full;
     int w_king_sq = b_after.kingSquare(true);
     int b_king_sq = b_after.kingSquare(false);
-    acc_stm_full.init_bias(_nnue.l0b);
-    acc_ntm_full.init_bias(_nnue.l0b);
+    acc_stm_full.init_bias(l0b);
+    acc_ntm_full.init_bias(l0b);
 
     U64 bb = b_after.colorBitboards[0] | b_after.colorBitboards[1];
     while (bb) {
@@ -882,26 +997,55 @@ void NNUE::debug_check_incr_vs_full_after_make(
         int pc_c = b_after.getSideAt(sq);
         const int base_stm = stm_base(w_king_sq), base_ntm = ntm_base(b_king_sq);
         const int flip_stm = stm_flip(w_king_sq), flip_ntm = ntm_flip(b_king_sq);
-        acc_stm_full.add_feature(feature_index_stm_halfka(sq, pc, pc_c, base_stm, flip_stm), _nnue.l0w);
-        acc_ntm_full.add_feature(feature_index_ntm_halfka(sq, pc, pc_c, base_ntm, flip_ntm), _nnue.l0w);
+        acc_stm_full.add_feature(feature_index_stm_halfka(sq, pc, pc_c, base_stm, flip_stm), l0w);
+        acc_ntm_full.add_feature(feature_index_ntm_halfka(sq, pc, pc_c, base_ntm, flip_ntm), l0w);
     }
 
-    _nnue.set_accumulators(&acc_stm_incr, &acc_ntm_incr);
-    int incr_eval = _nnue.evaluate(b_after.is_white_move, b_after.colorBitboards[0] | b_after.colorBitboards[1]);
+    acc_stm = acc_stm_incr;
+    acc_ntm = acc_ntm_incr;
+    int incr_eval = evaluate(b_after.is_white_move, b_after.colorBitboards[0] | b_after.colorBitboards[1]);
 
-    _nnue.set_accumulators(&acc_stm_full, &acc_ntm_full);
-    int full_eval = _nnue.evaluate(b_after.is_white_move, b_after.colorBitboards[0] | b_after.colorBitboards[1]);
+    acc_stm = acc_stm_full;
+    acc_ntm = acc_ntm_full;
+    int full_eval = evaluate(b_after.is_white_move, b_after.colorBitboards[0] | b_after.colorBitboards[1]);
 
-    _nnue.reset_accumulators();  // restore production state before any abort()
+    // Restore production state before any abort()
+    acc_stm = real_stm;
+    acc_ntm = real_ntm;
 
-    if (abs(full_eval - incr_eval) > 25) {
-        std::cerr << "\n[NNUE DEBUG] MISMATCH AFTER MAKE: " << mv.uci()
-                   << " full=" << full_eval << " incr=" << incr_eval << "\n";
+    // ------------------------------------------------------------
+    // Compare
+    // ------------------------------------------------------------
+
+    if (abs(full_eval - incr_eval) > 0) {
+
+        std::cerr
+            << "\n[NNUE DEBUG] MISMATCH AFTER UNMAKE: "
+            << mv.uci()
+            << " full=" << full_eval
+            << " incr=" << incr_eval
+            << "\n";
+
+        debug_diff_features_full(
+            acc_stm_incr,
+            acc_stm_full,
+            "STM"
+        );
+
+        debug_diff_features_full(
+            acc_ntm_incr,
+            acc_ntm_full,
+            "NTM"
+        );
+
         abort();
     }
 }
 
 
+// ============================================================
+// DEBUG AFTER UNMAKE
+// ============================================================
 // ============================================================
 // DEBUG AFTER UNMAKE
 // ============================================================
@@ -920,34 +1064,35 @@ void NNUE::debug_check_incr_vs_full_after_unmake(
     Board b_before = board_with_move;
     b_before.UnmakeMove(mv);
 
-    // Save the real production accumulator.
-    Accumulator* acc_stm_real = _nnue.acc_stm;
-    Accumulator* acc_ntm_real = _nnue.acc_ntm;
+    // Save the real production accumulator values.
+    Accumulator acc_stm_real = acc_stm;
+    Accumulator acc_ntm_real = acc_ntm;
 
     // ------------------------------------------------------------
-    // Simulate production incremental UNMAKE on LOCAL accumulators
+    // Simulate production incremental UNMAKE directly on the
+    // production accumulators — there's no pointer indirection
+    // to redirect to a scratch copy anymore, so we mutate
+    // acc_stm/acc_ntm in place and snapshot the result.
     // ------------------------------------------------------------
-
-    // Local copies to mutate incrementally.
-    Accumulator acc_stm_incr = *acc_stm_real;
-    Accumulator acc_ntm_incr = *acc_ntm_real;
-    _nnue.set_accumulators(&acc_stm_incr, &acc_ntm_incr);
 
     if (is_king_move) {
         // Production:
         //   board.UnmakeMove()
         //   build_halfka_accumulators(before)
 
-        _nnue.build_halfka_accumulators(b_before);
+        build_halfka_accumulators(b_before);
     } else {
         // Production:
         //   on_unmake_move_halfka(post_board, mv)
         //   board.UnmakeMove()
 
-        _nnue.on_unmake_move_halfka(board_with_move, mv);
+        on_unmake_move_halfka(board_with_move, mv);
     }
 
-    _nnue.reset_accumulators();   // back to production pointers
+    // Snapshot the incrementally-produced result before acc_stm/
+    // acc_ntm get overwritten again below for the full rebuild.
+    Accumulator acc_stm_incr = acc_stm;
+    Accumulator acc_ntm_incr = acc_ntm;
 
     // ------------------------------------------------------------
     // Build completely independent full PRE-MOVE accumulators
@@ -959,8 +1104,8 @@ void NNUE::debug_check_incr_vs_full_after_unmake(
     int w_king_sq = b_before.kingSquare(true);
     int b_king_sq = b_before.kingSquare(false);
 
-    acc_stm_full.init_bias(_nnue.l0b);
-    acc_ntm_full.init_bias(_nnue.l0b);
+    acc_stm_full.init_bias(l0b);
+    acc_ntm_full.init_bias(l0b);
 
     U64 bb = b_before.colorBitboards[0] |
              b_before.colorBitboards[1];
@@ -980,13 +1125,13 @@ void NNUE::debug_check_incr_vs_full_after_unmake(
         acc_stm_full.add_feature(
             feature_index_stm_halfka(
                 sq, pc, color, base_stm, flip_stm),
-            _nnue.l0w
+            l0w
         );
 
         acc_ntm_full.add_feature(
             feature_index_ntm_halfka(
                 sq, pc, color, base_ntm, flip_ntm),
-            _nnue.l0w
+            l0w
         );
     }
 
@@ -994,19 +1139,23 @@ void NNUE::debug_check_incr_vs_full_after_unmake(
     // Evaluate simulated incremental result
     // ------------------------------------------------------------
 
-    _nnue.set_accumulators(&acc_stm_incr, &acc_ntm_incr);
-    int incr_eval = _nnue.evaluate(b_before.is_white_move, b_before.colorBitboards[0] | b_before.colorBitboards[1]);
+    acc_stm = acc_stm_incr;
+    acc_ntm = acc_ntm_incr;
+    int incr_eval = evaluate(b_before.is_white_move, b_before.colorBitboards[0] | b_before.colorBitboards[1]);
 
-    _nnue.set_accumulators(&acc_stm_full, &acc_ntm_full);
-    int full_eval = _nnue.evaluate(b_before.is_white_move, b_before.colorBitboards[0] | b_before.colorBitboards[1]);
+    acc_stm = acc_stm_full;
+    acc_ntm = acc_ntm_full;
+    int full_eval = evaluate(b_before.is_white_move, b_before.colorBitboards[0] | b_before.colorBitboards[1]);
 
-    _nnue.reset_accumulators();  // restore production state before any abort()
+    // Restore production state before any abort()
+    acc_stm = acc_stm_real;
+    acc_ntm = acc_ntm_real;
 
     // ------------------------------------------------------------
     // Compare
     // ------------------------------------------------------------
 
-    if (abs(full_eval - incr_eval) > 25) {
+    if (abs(full_eval - incr_eval) > 0) {
 
         std::cerr
             << "\n[NNUE DEBUG] MISMATCH AFTER UNMAKE: "
@@ -1069,16 +1218,10 @@ void NNUE::debug_expected_changes(const Board &before,
               << feature_index_ntm_halfka(m.TargetSquare(), movingPiece, stm_after, base_ntm, flip_ntm) << "\n\n";
 }
 
-template <typename T>
-bool NNUE::check_active_features_consistency(const T& incr,
-                                             const T& full,
+bool NNUE::check_active_features_consistency(const Accumulator& incr,
+                                             const Accumulator& full,
                                              const char* name,
                                              bool abort_on_mismatch) {
-    
-    if constexpr (std::is_same_v<T, Accumulator>) {
-        std::cout << "non-debug accumulators. active_features not set." << std::endl;
-        return false;
-    }
 
     // Convert unordered_set to sorted vector
     std::vector<int> incr_vec(incr.active_features.begin(), incr.active_features.end());
@@ -1162,8 +1305,8 @@ void NNUE::debug_check_features_after_move(const Board& b) {
 
     bool stm_correct; bool ntm_correct;
 
-    stm_correct = check_active_features_consistency(_nnue.acc_stm, nnue_full.acc_stm, "STM", false);
-    ntm_correct = check_active_features_consistency(_nnue.acc_ntm, nnue_full.acc_ntm, "NTM", false);
+    stm_correct = check_active_features_consistency(acc_stm, nnue_full.acc_stm, "STM", false);
+    ntm_correct = check_active_features_consistency(acc_ntm, nnue_full.acc_ntm, "NTM", false);
 
     if (!stm_correct || !ntm_correct) {
         b.allGameMoves.back().PrintMove();

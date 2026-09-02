@@ -44,7 +44,7 @@ set(SOURCES
     ${SRC_DIR}/helpers.cpp
     ${SRC_DIR}/magics.cpp
     ${SRC_DIR}/moveGenerator.cpp
-    ${NNUE_DIR}/NNUE.cpp
+    ${NNUE_DIR}/nnue.cpp
     ${SRC_DIR}/PrecomputedMoveData.cpp
     ${SRC_DIR}/searcher.cpp
     ${SRC_DIR}/tomahawk.cpp

@@ -46,6 +46,16 @@ inline void init_bias_simd(const int16_t* bias, int16_t* vals) {
     }
 }
 
+/*
+inline void init_bias_smallnet(const int16_t* bias, int32_t* vals) {
+    for (int i = 0; i < HIDDEN_SIZE; i += 8) {
+        __m256i b32 = _mm256_cvtepi16_epi32(
+            _mm_loadu_si128(reinterpret_cast<const __m128i*>(bias + i))
+        );
+        _mm256_storeu_si256(reinterpret_cast<__m256i*>(vals + i), b32);
+    }
+*/
+
 inline void add_feature_simd(const int16_t* col, int16_t* vals) {
     for (int i = 0; i < L1_SIZE; i += 16) {
         // load 8 int32 accumulator values
@@ -58,6 +68,27 @@ inline void add_feature_simd(const int16_t* col, int16_t* vals) {
     }
 }
 
+/*
+inline void add_feature_smallnet(const int16_t* col, int32_t* vals) {
+    for (int i = 0; i < HIDDEN_SIZE; i += 8) {
+        // load 8 int32 accumulator values
+        __m256i acc = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(vals + i)
+        );
+        // load 8 int16 weights, widen to int32 inline
+        __m256i w32 = _mm256_cvtepi16_epi32(
+            _mm_loadu_si128(reinterpret_cast<const __m128i*>(col + i))
+        );
+
+        acc = _mm256_add_epi32(acc, w32);
+        
+        _mm256_storeu_si256(
+            reinterpret_cast<__m256i*>(vals + i), acc
+        );
+    }
+}
+*/
+
 inline void remove_feature_simd(const int16_t* col, int16_t* vals) {
     for (int i = 0; i < L1_SIZE; i += 16) {
         __m256i acc = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(vals + i));
@@ -67,6 +98,25 @@ inline void remove_feature_simd(const int16_t* col, int16_t* vals) {
         _mm256_store_si256(reinterpret_cast<__m256i*>(vals + i), acc);
     }
 }
+
+/*
+inline void remove_feature_smallnet(const int16_t* col, int32_t* vals) {
+    for (int i = 0; i < HIDDEN_SIZE; i += 8) {
+        __m256i acc = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(vals + i)
+        );
+        __m256i w32 = _mm256_cvtepi16_epi32(
+            _mm_loadu_si128(reinterpret_cast<const __m128i*>(col + i))
+        );
+
+        acc = _mm256_sub_epi32(acc, w32);
+
+        _mm256_storeu_si256(
+            reinterpret_cast<__m256i*>(vals + i), acc
+        );
+    }
+}
+*/
 
 inline void add_sub_feature_simd(const int16_t* add_col, const int16_t* sub_col, int16_t* vals) {
     for (int i = 0; i < L1_SIZE; i += 16) {
@@ -80,6 +130,28 @@ inline void add_sub_feature_simd(const int16_t* add_col, const int16_t* sub_col,
         _mm256_store_si256(reinterpret_cast<__m256i*>(vals + i), acc);
     }
 }
+
+/*
+inline void add_sub_feature_smallnet(const int16_t* add_col, const int16_t* sub_col, int16_t* vals) {
+    for (int i = 0; i < HIDDEN_SIZE; i += 8) {
+        __m256i acc = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(vals + i)
+        );
+        __m256i add_w = _mm256_cvtepi16_epi32(
+            _mm_loadu_si128(reinterpret_cast<const __m128i*>(add_col + i))
+        );
+        __m256i sub_w = _mm256_cvtepi16_epi32(
+            _mm_loadu_si128(reinterpret_cast<const __m128i*>(sub_col + i))
+        );
+
+        acc = _mm256_add_epi32(acc, add_w);
+        acc = _mm256_sub_epi32(acc, sub_w);
+
+        _mm256_storeu_si256(reinterpret_cast<__m256i*>(vals + i), acc);
+    }
+}
+*/
+
 
 // ---------- feature transformer -----------
 
