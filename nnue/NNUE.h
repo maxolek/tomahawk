@@ -68,12 +68,71 @@ inline int output_bucket(U64 occ) {
     return (countBits(occ) - 2) / OUTPUT_BUCKET_DIVISOR; // -2 for kings
 }
 
+inline int stm_flip(int w_king_sq) {
+    return mirrored_flip(w_king_sq);
+    
+}
+
+inline int ntm_flip(int b_king_sq) {
+    return mirrored_flip(b_king_sq ^ 56);
+}
+
+inline int stm_base(int w_king_sq) {
+    return mirrored_bucket(w_king_sq) * 768;
+}
+
+inline int ntm_base(int b_king_sq) {
+    return mirrored_bucket(b_king_sq ^ 56) * 768;
+}
+
+// ============================================================
+// ChessBucketsMirrored / 768x32hm
+//
+// Matches bullet trainer:
+// ChessBucketsMirrored::new([usize; 32])
+//
+// expanded bucket mapping:
+//     rank * 4 + [0,1,2,3,3,2,1,0][file]
+// and:
+//     flip = 7 if file > 3
+//            0 otherwise
+//
+// The underlying 768 feature numbering is the existing
+// Chess768 numbering used before
+// ============================================================
+
+
+inline int feature_index_stm_halfka(
+    int sq,
+    int piece,
+    int color,
+    int base,
+    int flip
+) {
+    return base
+         + (color == 0 ? 0 : 384)
+         + piece * 64
+         + (sq ^ flip);
+}
+
+inline int feature_index_ntm_halfka(
+    int sq,
+    int piece,
+    int color,
+    int base,
+    int flip
+) {
+    return base
+         + (color == 0 ? 384 : 0)
+         + piece * 64
+         + ((sq ^ 56) ^ flip);
+}
+
 // ============================================================
 // Accumulator: holds hidden activations BEFORE SCReLU
 // ============================================================
 struct Accumulator {
     alignas(32) int16_t vals[L1_SIZE];   // pre-activation <--> post-weight_transform
-    //std::unordered_set<int> active_features;
 
     inline void init_bias(const int16_t* bias) {
 #ifdef _WIN32
@@ -85,7 +144,6 @@ struct Accumulator {
         for (int i = 0; i < L1_SIZE; i++)
             vals[i] = bias[i];
 #endif
-        //active_features.clear();
     }
 
     inline void add_feature(int feature_idx, int16_t (*W)[L1_SIZE]) {
@@ -104,7 +162,6 @@ struct Accumulator {
         for (int i = 0; i < L1_SIZE; i++)
             vals[i] += col[i];
 #endif
-        //active_features.insert(feature_idx);
     }
 
     inline void remove_feature(int feature_idx, int16_t (*W)[L1_SIZE]) {
@@ -121,7 +178,6 @@ struct Accumulator {
         for (int i = 0; i < L1_SIZE; i++)
             vals[i] -= col[i];
 #endif
-        //active_features.erase(feature_idx);
     }
 
     // typical moves perform both of these
@@ -146,18 +202,6 @@ struct Accumulator {
         remove_feature(sub_idx, W);
 #endif
     }
-
-    /*
-    void dump_active_features(const char* name) const {
-        std::cout << "[ACTIVE FEATURES] " << name << " count=" << active_features.size() << "\n";
-        int count = 0;
-        for (int f : active_features) {
-            std::cout << f << " ";
-            if (++count % 16 == 0) std::cout << "\n";
-        }
-        std::cout << "\n";
-    }
-    */
 };
 
 // ============================================================
@@ -166,6 +210,34 @@ struct Accumulator {
 
 class NNUE {
 public:
+    // Cached accumulators
+    // dual perspective
+    // during tracking stm=white and ntm=black always
+    // flipped appropriately during eval for [stm,ntm] actual [us/them] concat
+    //      changed to pointers for integration with DEBUG class
+    Accumulator acc_stm_storage, acc_ntm_storage;
+    Accumulator* acc_stm = &acc_stm_storage;
+    Accumulator* acc_ntm = &acc_stm_storage;
+  
+    // ========== L0: 768xINPUT_BUCKETS → 512 ==========
+    // Stored column-major: W0[feature][hidden]
+    int16_t l0w[INPUT_SIZE][L1_SIZE];
+    int16_t l0b[L1_SIZE];
+
+    // ========== L1: 512 → 8x16 ==========
+    // Dual-perspective: [stm_hidden, ntm_hidden]
+    int8_t l1w[L2_SIZE * NUM_OUTPUT_BUCKETS][L1_SIZE]; // 2*L0_SIZE if not using pairwise multiply
+    int32_t l1b[L2_SIZE * NUM_OUTPUT_BUCKETS];          // otherwise the concat is reduced back down to L0_SIZE
+
+    // ========== L2: 16 → 8x32 ==========
+    int8_t l2w[L3_SIZE * NUM_OUTPUT_BUCKETS][L2_SIZE];
+    int32_t l2b[L3_SIZE * NUM_OUTPUT_BUCKETS];
+
+    // ========== L3: 32 → NUM_OUTPUT_BUCKETS ==========
+    int8_t l3w[NUM_OUTPUT_BUCKETS][L3_SIZE];
+    int32_t l3b[NUM_OUTPUT_BUCKETS];
+
+    // constructors 
     NNUE() {};
     NNUE(const fs::path& path) { load(path); };
 
@@ -187,95 +259,37 @@ public:
     void build_accumulators(const Board& b);
     void build_halfka_accumulators(const Board& b);
 
-    // ========== L0: 768xINPUT_BUCKETS → 512 ==========
-    // Stored column-major: W0[feature][hidden]
-    int16_t l0w[INPUT_SIZE][L1_SIZE];
-    int16_t l0b[L1_SIZE];
+    void set_accumulators(Accumulator* stm, Accumulator* ntm);
+    void reset_accumulators();
 
-    // ========== L1: 512 → 8x16 ==========
-    // Dual-perspective: [stm_hidden, ntm_hidden]
-    int8_t l1w[L2_SIZE * NUM_OUTPUT_BUCKETS][L1_SIZE]; // 2*L0_SIZE if not using pairwise multiply
-    int32_t l1b[L2_SIZE * NUM_OUTPUT_BUCKETS];          // otherwise the concat is reduced back down to L0_SIZE
-
-    // ========== L2: 16 → 8x32 ==========
-    int8_t l2w[L3_SIZE * NUM_OUTPUT_BUCKETS][L2_SIZE];
-    int32_t l2b[L3_SIZE * NUM_OUTPUT_BUCKETS];
-
-    // ========== L3: 32 → NUM_OUTPUT_BUCKETS ==========
-    int8_t l3w[NUM_OUTPUT_BUCKETS][L3_SIZE];
-    int32_t l3b[NUM_OUTPUT_BUCKETS];
-
-    // Cached accumulators
-    // dual perspective
-    // during tracking stm=white and ntm=black always
-    // flipped appropriately during eval for [stm,ntm] actual [us/them] concat
-    Accumulator acc_stm;
-    Accumulator acc_ntm;
-
-    // ========================================================
-    // Helpers
-    // ========================================================
-
-    inline int32_t crelu(int32_t x, int32_t clamp_bound) const {
-        return std::clamp<int32_t>(x, 0, clamp_bound);
-    }
-
-    template <typename T>
-    inline T screlu(T x, T clamp_bound) const {
-        T y = std::clamp<T>(x, 0, clamp_bound);
-        return y * y;
-    }
-
-    // pairwise multiply WITHIN each accumulator
-    // concat resulting 1/2-stm and 1/2-ntm accumulators
-    inline void pairwise_mul(
-        const int32_t* stm,
-        const int32_t* ntm,
-        int32_t* result
-    ) {
-        constexpr int HALF = L1_SIZE / 2;
-
-        for (int i = 0; i < HALF; ++i) {
-            result[i] = stm[i] * stm[i + HALF];
-            result[i + HALF] = ntm[i] * ntm[i + HALF];
-        }
-    }
-
-#ifdef _WIN32
-    
-#endif
-
-    // debugging
-    void debug_simd(const Board& b);
-    //void debug_acc(const Accumulator& acc, const std::string& name) const;
-    void debug_acc_full(const Accumulator& acc, const std::string& name) const;
-    //void debug_evaluate(const Accumulator& us, const Accumulator& them) const;
-    //void debug_on_move(const std::string& name, const Move& mv, int color, int moved_piece,
-    //                     int f_from, int f_to) const;
-    //void on_make_move_debug(const Board& before, const Move& mv);
-    //void on_unmake_move_debug(const Board& board, const Move& mv);
-    //int evaluate_debug(bool is_white_move) const;
-    void debug_check_incr_vs_full_after_make(
-        const Board& before,
-        const Move& mv,
-        bool is_king_move
-    );
-
-    void debug_check_incr_vs_full_after_unmake(
-        const Board& board_with_move,
-        const Move& mv,
-        bool is_king_move
-    );
-    void debug_replay_feature_changes(const Board& before,
-                                        const Move& mv,
-                                        const Board& after);
-    void debug_expected_changes(const Board &before,
-                            const Move &m,
-                            const Board &after);
-    bool check_active_features_consistency(const Accumulator& incr,
-                                              const Accumulator& full,
-                                              const char* name,
-                                              bool abort_on_mismatch = true);
-    void debug_check_features_after_move(const Board& b);
-    
 };
+
+
+// ========================================================
+// Helpers
+// ========================================================
+
+inline int32_t crelu(const int32_t x, const int32_t clamp_bound) {
+    return std::clamp<int32_t>(x, 0, clamp_bound);
+}
+
+template <typename T>
+inline T screlu(const T x, const T clamp_bound) {
+    T y = std::clamp<T>(x, 0, clamp_bound);
+    return y * y;
+}
+
+// pairwise multiply WITHIN each accumulator
+// concat resulting 1/2-stm and 1/2-ntm accumulators
+inline void pairwise_mul(
+    const int32_t* stm,
+    const int32_t* ntm,
+    int32_t* result
+) {
+    constexpr int HALF = L1_SIZE / 2;
+
+    for (int i = 0; i < HALF; ++i) {
+        result[i] = stm[i] * stm[i + HALF];
+        result[i + HALF] = ntm[i] * ntm[i + HALF];
+    }
+}

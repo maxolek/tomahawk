@@ -36,6 +36,7 @@ bin/opening_books/UHO_Lichess_4852_v1.epd
 bin/configs/
 # nnue weights
 bin/nnue_wgts/
+/nnue/nnue_wgts/
 
 # misc
 *.DS_STORE
