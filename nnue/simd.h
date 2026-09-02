@@ -36,6 +36,53 @@ constexpr int QB = 64;  // L1 weights
 constexpr int QC = 64;  // L2+3 weights
 constexpr int SCALE = 400;
 
+
+// --------- Accumulator -------------
+
+inline void init_bias_simd(const int16_t* bias, int16_t* vals) {
+    for (int i = 0; i < L1_SIZE; i += 16) {
+        __m256i b = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(bias + i));
+        _mm256_store_si256(reinterpret_cast<__m256i*>(vals + i), b);
+    }
+}
+
+inline void add_feature_simd(const int16_t* col, int16_t* vals) {
+    for (int i = 0; i < L1_SIZE; i += 16) {
+        // load 8 int32 accumulator values
+        __m256i acc = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(vals + i));
+        // load 8 int16 weights
+        __m256i w = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(col + i));
+
+        acc = _mm256_add_epi16(acc, w);
+        _mm256_store_si256(reinterpret_cast<__m256i*>(vals + i), acc);
+    }
+}
+
+inline void remove_feature_simd(const int16_t* col, int16_t* vals) {
+    for (int i = 0; i < L1_SIZE; i += 16) {
+        __m256i acc = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(vals + i));
+        __m256i w = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(col + i));
+
+        acc = _mm256_sub_epi32(acc, w);
+        _mm256_store_si256(reinterpret_cast<__m256i*>(vals + i), acc);
+    }
+}
+
+inline void add_sub_feature_simd(const int16_t* add_col, const int16_t* sub_col, int16_t* vals) {
+    for (int i = 0; i < L1_SIZE; i += 16) {
+        __m256i acc = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(vals + i));
+        __m256i add_w = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(add_col + i));
+        __m256i sub_w = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(sub_col + i));
+
+        acc = _mm256_add_epi32(acc, add_w);
+        acc = _mm256_sub_epi32(acc, sub_w);
+
+        _mm256_store_si256(reinterpret_cast<__m256i*>(vals + i), acc);
+    }
+}
+
+// ---------- feature transformer -----------
+
 template <typename T>
 inline void pairwise_mul_simd(
     const T* stm,
@@ -84,6 +131,7 @@ inline void pairwise_mul_simd(
     }
 }
 
+// ----------- sum accumulation -------------
 
 // horizontal sum int32
 // performs weight multplication for !! output layer !!
@@ -110,6 +158,8 @@ inline int64_t hsum_epi64(__m256i v) {
     __m128i sum64  = _mm_add_epi64(sum128, hi64);
     return _mm_cvtsi128_si64(sum64);
 }
+
+// -------------- weight transforms -------------
 
 // dot product of int64 activations x int8 weights, exact (no overflow/truncation)
 // a[] must be non-negative (true for screlu output) and size must be a multiple of 4
@@ -169,6 +219,8 @@ inline int64_t dot_i32_i8_widen(const int32_t* a, const int8_t* w, int size) {
 
     return hsum_epi64(acc_lo) + hsum_epi64(acc_hi);
 }
+
+// ----------- activations -------------
 
 inline void activate_crelu(const int16_t* in, int16_t* out, int size, int QA) {
     const __m256i zero = _mm256_setzero_si256();

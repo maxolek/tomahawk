@@ -27,6 +27,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # -------------------
 set(SRC_DIR ${CMAKE_SOURCE_DIR}/src)
 set(INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
+set(NNUE_DIR ${CMAKE_SOURCE_DIR}/nnue)
 set(ENGINES_DIR ${CMAKE_SOURCE_DIR}/engines)
 set(DEV_ENGINES_DIR ${ENGINES_DIR}/dev)
 set(PROD_ENGINES_DIR ${ENGINES_DIR}/prod)
@@ -43,7 +44,7 @@ set(SOURCES
     ${SRC_DIR}/helpers.cpp
     ${SRC_DIR}/magics.cpp
     ${SRC_DIR}/moveGenerator.cpp
-    ${SRC_DIR}/NNUE.cpp
+    ${NNUE_DIR}/NNUE.cpp
     ${SRC_DIR}/PrecomputedMoveData.cpp
     ${SRC_DIR}/searcher.cpp
     ${SRC_DIR}/tomahawk.cpp
@@ -52,7 +53,10 @@ set(SOURCES
 
 add_executable(tomahawk ${SOURCES})
 
-target_include_directories(tomahawk PRIVATE ${INCLUDE_DIR})
+target_include_directories(tomahawk PRIVATE 
+    ${INCLUDE_DIR}
+    ${NNUE_DIR}
+)
 
 # -------------------
 # Warnings
@@ -81,7 +85,7 @@ endif()
 # DEBUG
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(tomahawk PRIVATE
-        -O0
+        -O1
         -g
         -mbmi2
         -mavx2
@@ -123,6 +127,7 @@ elseif (CMAKE_BUILD_TYPE STREQUAL "Profile")
         -g
         -fno-omit-frame-pointer
     )
+    target_compile_definitions(tomahawk PRIVATE DEBUG)
 
 # analysis (full stats) config
 elseif (CMAKE_BUILD_TYPE STREQUAL "DEV")
