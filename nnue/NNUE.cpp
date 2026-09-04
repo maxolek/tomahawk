@@ -10,6 +10,10 @@
 // effectively the row-major order of the transposed matrix. The C++ side stores
 // the same logical matrix as l0w[input_feature][hidden], so we must reconstruct
 // the feature-major representation from the flat Bullet stream before use.
+
+// the feature transformer is input-sparse, so input-major [feature][hidden]
+// is better for simd as our transforms are in the hidden dim mainly
+// fixed input neuron - all output weights are contiguous
 static void decode_bullet_l0w(const uint8_t* p, int16_t (*out)[L1_SIZE]) {
     const int16_t* flat = reinterpret_cast<const int16_t*>(p);
     for (int feature = 0; feature < INPUT_SIZE; ++feature) {
@@ -18,6 +22,16 @@ static void decode_bullet_l0w(const uint8_t* p, int16_t (*out)[L1_SIZE]) {
             out[feature][hidden] = flat[(size_t)feature * (size_t)L1_SIZE + (size_t)hidden];
         }
     }
+}
+
+// output-major [output][input] is preferred for simd in dense layouts
+// fixed output neuron - all input weights are contiguous
+template <typename T, int NUM_OUT, int NUM_IN>
+static void decode_bullet_affine(const uint8_t* p, T* out) {
+    const T* flat = reinterpret_cast<const T*>(p);
+    for (int i = 0; i < NUM_IN; ++i)
+        for (int o = 0; o < NUM_OUT; ++o)
+            out[o * NUM_IN + i] = flat[(size_t)i * NUM_OUT + o];
 }
 
 static void decode_mirrored_bucket(int bucket, int& rank, int& file) {
@@ -72,35 +86,27 @@ bool NNUE::load(const fs::path& path) {
 
     const uint8_t* p = data.data();
 
-    // L0
+    // L0 (input-major column reader)
     decode_bullet_l0w(p, l0w);
     p += sizeof(l0w);
-
-    // L0 bias
     std::memcpy(l0b, p, sizeof(l0b));
     p += sizeof(l0b);
 
-    // L1
-    std::memcpy(l1w, p, sizeof(l1w));
+    // L1  (in = L1_SIZE, out = L2_SIZE * NUM_OUTPUT_BUCKETS)
+    decode_bullet_affine<int8_t, L2_SIZE * NUM_OUTPUT_BUCKETS, L1_SIZE>(p, &l1w[0][0]);
     p += sizeof(l1w);
-
-    // L1 bias
-    std::memcpy(&l1b, p, sizeof(l1b));
+    std::memcpy(&l1b, p, sizeof(l1b));   // bias is 1-D, memcpy is fine
     p += sizeof(l1b);
 
-    // L2
-    std::memcpy(l2w, p, sizeof(l2w));
+    // L2  (in = L2_SIZE, out = L3_SIZE * NUM_OUTPUT_BUCKETS)
+    decode_bullet_affine<int8_t, L3_SIZE * NUM_OUTPUT_BUCKETS, L2_SIZE>(p, &l2w[0][0]);
     p += sizeof(l2w);
-
-    // L2 bias
     std::memcpy(&l2b, p, sizeof(l2b));
     p += sizeof(l2b);
 
-    // L3 
-    std::memcpy(l3w, p, sizeof(l3w));
+    // L3  (in = L3_SIZE, out = NUM_OUTPUT_BUCKETS)
+    decode_bullet_affine<int8_t, NUM_OUTPUT_BUCKETS, L3_SIZE>(p, &l3w[0][0]);
     p += sizeof(l3w);
-
-    // L3 bias
     std::memcpy(l3b, p, sizeof(l3b));
 
     return true;

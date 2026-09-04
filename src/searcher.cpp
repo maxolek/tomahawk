@@ -861,7 +861,7 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
         #ifdef DEV
             auto depth_end = std::chrono::steady_clock::now();
             //g_stats.max_completed_depth = depth;
-            g_stats.it_depth_eval[depth] = result.eval;
+            g_stats.it_depth_eval[depth] = result.eval; // stm perspective (+.5 white = -.5 black and vice versa)
             g_stats.it_depth_move[depth] = result.bestMove;
             g_stats.it_depth_time_ms[depth] = std::chrono::duration<double, std::milli>(depth_end - depth_start).count();
             //if (Move::SameMove(bestMove, prevBest)) g_stats.bestmoveStable++;

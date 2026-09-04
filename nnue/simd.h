@@ -129,7 +129,7 @@ inline void remove_feature_simd(const int16_t* col, int16_t* vals) {
         __m256i acc = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(vals + i));
         __m256i w = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(col + i));
 
-        acc = _mm256_sub_epi32(acc, w);
+        acc = _mm256_sub_epi16(acc, w);
         _mm256_store_si256(reinterpret_cast<__m256i*>(vals + i), acc);
     }
 }
@@ -159,8 +159,8 @@ inline void add_sub_feature_simd(const int16_t* add_col, const int16_t* sub_col,
         __m256i add_w = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(add_col + i));
         __m256i sub_w = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(sub_col + i));
 
-        acc = _mm256_add_epi32(acc, add_w);
-        acc = _mm256_sub_epi32(acc, sub_w);
+        acc = _mm256_add_epi16(acc, add_w);
+        acc = _mm256_sub_epi16(acc, sub_w);
 
         _mm256_store_si256(reinterpret_cast<__m256i*>(vals + i), acc);
     }
