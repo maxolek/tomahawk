@@ -174,10 +174,10 @@ void UCI::handleCommand(const std::string& line) {
         // static or tapered evaluation test
         engine->staticEvalTest();
     }
-#ifdef _WIN32
     else if (token == "nnue_eval") {
         engine->nnueEvalTest();
     }
+#ifdef _WIN32
     else if (token == "nnue_test") {
         engine->nnueSIMDTest();
     }

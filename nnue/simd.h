@@ -72,6 +72,8 @@ constexpr int SCALE = 400;
 */
 
 
+#ifdef _WIN32
+
 // --------- Accumulator -------------
 
 inline void init_bias_simd(const int16_t* bias, int16_t* vals) {
@@ -383,5 +385,7 @@ inline void activate_screlu64(const int32_t* in, int64_t* out, int size, int32_t
         _mm256_store_si256(reinterpret_cast<__m256i*>(out + i + 4), out_hi);
     }
 }
+
+#endif // _WIN32
 
 #endif // SIMD_H
