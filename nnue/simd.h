@@ -223,10 +223,10 @@ inline int64_t dot_i64_i8(const int64_t* a, const int8_t* w, int size) {
     const __m256i one       = vec_set_64<__m256i>(1);
 
     for (int i = 0; i < size; i += 4) {
-        __m256i av = vec_load(reinterpret_cast<const __m256i*>(a + i));
+        __m256i av = vec_load(a + i);
 
         // widen 4 int8 weights -> 4 int64 (sign-extended)
-        __m128i w8   = vec_load(reinterpret_cast<const __m128i*>(w + i)); // loads 8 bytes, only low 4 used
+        __m128i w8   = vec_load(w + i); // loads 8 bytes, only low 4 used
         __m256i w32  = vec_convert_8_32(w8);       // low 8 int8 -> 8 int32
         __m128i w32l = vec_cast_256_128(w32);    // low 4 int32 == w[i..i+3]
         __m256i wv   = vec_convert_32_64(w32l);    // 4 int64, sign-extended
@@ -239,13 +239,16 @@ inline int64_t dot_i64_i8(const int64_t* a, const int8_t* w, int size) {
         // a_lo's true value is unsigned (0..2^32-1); if its top bit is set,
         // the signed read is (a_lo - 2^32), so we carry a +1 into a_hi to
         // compensate: a = (a_hi + carry)*2^32 + a_lo_signed, exactly.
-        __m256i carry    = _mm256_and_si256(_mm256_srli_epi64(av, 31), one);
+        __m256i carry    = _mm256_and_si256(
+                                vec_shift_right64<__m256i>(av, 31), 
+                                one
+                            );
         __m256i a_hi_adj = vec_add64(a_hi, carry);
 
         __m256i lo_prod = vec_mul32(a_lo, wv);      // a_lo_signed * w  (exact 64-bit)
         __m256i hi_prod = vec_mul32(a_hi_adj, wv);  // (a_hi + carry) * w
 
-        __m256i prod = vec_add64(lo_prod, vec_slli64(hi_prod, 32));
+        __m256i prod = vec_add64(lo_prod, vec_shift_left64<__m256i>(hi_prod, 32));
         acc = vec_add64(acc, prod);
     }
 
@@ -259,13 +262,13 @@ inline int64_t dot_i32_i8_widen(const int32_t* a, const int8_t* w, int size) {
 
     for (int i = 0; i < size; i += 8) {
         __m256i av  = vec_load(a + i);
-        __m128i w8  = vec_load(reinterpret_cast<const __m128i*>(w + i));
+        __m128i w8  = vec_load(w + i);
         __m256i wv  = vec_convert_8_32<__m256i>(w8);
 
         // _mm256_mul_epi32 reads the low 32 bits of each 64-bit lane, signed,
         // and produces a true 64-bit product -- widening, no overflow.
         __m256i lo = vec_mul32<__m256i>(av, wv);                                     // lanes 0,2,4,6
-        __m256i hi = vec_mul32<__m256i>(_mm256_srli_si256(av, 4), _mm256_srli_si256(wv, 4)); // lanes 1,3,5,7
+        __m256i hi = vec_mul32<__m256i>(vec_shift_right32<__m256i>(av, 4), vec_shift_right32<__m256i>(wv, 4)); // lanes 1,3,5,7
 
         acc_lo = vec_add64<__m256i>(acc_lo, lo);
         acc_hi = vec_add64<__m256i>(acc_hi, hi);
@@ -312,7 +315,7 @@ inline void activate_screlu64(const int32_t* in, int64_t* out, int size, int32_t
 
         // widening square: 32x32 -> 64, 4 lanes at a time, done twice for 8 int32 inputs
         __m256i lo = vec_mul32(v, v);                                    // squares elements 0,2,4,6 -> 64-bit
-        __m256i hi = vec_mul32(_mm256_srli_si256(v, 4), _mm256_srli_si256(v, 4)); // elements 1,3,5,7
+        __m256i hi = vec_mul32(vec_shift_right32<__m256i>(v, 4), vec_shift_right32<__m256i>(v, 4)); // elements 1,3,5,7
         // unpacklo/hi only interleave within each 128-bit half:
         //   u_lo = [v0²,v1²,v4²,v5²]   u_hi = [v2²,v3²,v6²,v7²]
         __m256i u_lo = vec_unpacklo64(u_lo, u_hi);

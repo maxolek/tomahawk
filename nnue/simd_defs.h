@@ -53,6 +53,21 @@ template <> __m256i vec_unpackhi64<__m256i>(__m256i x, __m256i y) {
     return _mm_unpackhi_epi64(x, y); 
 }
 
+// shift
+template <> __m256i vec_shift_left32<__m256i>(__m256i x, int shift) { 
+    return _mm256_slli_epi32(x, shift); 
+}
+template <> __m256i vec_shift_left64<__m256i>(__m256i x, int shift) { 
+    return _mm256_slli_epi64(x, shift); 
+}
+
+template <> __m256i vec_shift_right32<__m256i>(__m256i x, int shift) { 
+    return _mm256_srli_epi32(x, shift); 
+}
+template <> __m256i vec_shift_right64<__m256i>(__m256i x, int shift) { 
+    return _mm256_srli_epi64(x, shift); 
+}
+
 template <> __m256i vec_lo_half<__m256i>(__m256i x) { 
     const __m256i mask_lo32 = vec_set_64<__m256i>(0xFFFFFFFFLL);
     return _mm256_and_si256(x, mask_lo32); 
@@ -109,6 +124,11 @@ template <> __m256i vec_shuffle32<__m256i>(__m256i x, int imm) {
 template <> __m128i vec_shuffle32<__m128i>(__m128i x, int imm) { 
     return _mm_shuffle_epi32(x, imm); 
 }
+
+// permute
+template <> __m256i vec_permute2x128<__m256i>(__m256i x, __m256i y, int imm) { 
+    return _mm256_permute2x128_si256(x, y, imm); 
+} 
 
 // clamp
 template <> __m256i vec_clamp16<__m256i>(__m256i x, __m256i min, __m256i max) {
