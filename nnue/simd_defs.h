@@ -7,6 +7,57 @@
 
 #include <immintrin.h>
 
+// templates
+template <typename T> static inline T vec_set_16(int x);
+template <typename T> static inline T vec_set_32(int x);
+template <typename T> static inline T vec_set_64(int x);
+template <typename T> static inline void vec_set_zero(T &x);
+
+template <typename T> static inline T vec_load(const int8_t *x);
+template <typename T> static inline T vec_load(const int16_t *x);
+template <typename T> static inline T vec_load(const int32_t *x);
+template <typename T> static inline T vec_load(const T *x);
+
+template <typename T> static inline void vec_store(T *to, T from);
+template <typename T> static inline void vec_store(int16_t *to, T from);
+template <typename T> static inline void vec_store(int32_t *to, T from);
+template <typename T> static inline void vec_store(int64_t *to, T from);
+
+template <typename T> static inline T vec_unpacklo64(T x, T y);
+template <typename T> static inline T vec_unpackhi64(T x, T y);
+template <typename T> static inline T vec_lo_half(T x);
+template <typename T> static inline T vec_hi_half(T x);
+
+template <typename T> static inline T vec_shift_left32(T x, int shift);
+template <typename T> static inline T vec_shift_left64(T x, int shift);
+template <typename T> static inline T vec_shift_right32(T x, int shift);
+template <typename T> static inline T vec_shift_right64(T x, int shift);
+
+template <typename T> static inline T vec_add16(T x, T y);
+template <typename T> static inline T vec_add32(T x, T y);
+template <typename T> static inline T vec_add64(T x, T y);
+template <typename T> static inline T vec_sub16(T x, T y);
+template <typename T> static inline T vec_sub32(T x, T y);
+
+template <typename T> static inline T vec_mul16(T x, T y);
+template <typename T> static inline T vec_mul32(T x, T y);
+template <typename T> static inline T vec_mullo16(T x, T y);
+template <typename T> static inline T vec_mullo32(T x, T y);
+template <typename T> static inline T vec_mulhi16(T x, T y);
+template <typename T> static inline T vec_mulhi32(T x, T y);
+
+template <typename T> static inline T vec_clamp16(T x, T min, T max);
+template <typename T> static inline T vec_clamp32(T x, T min, T max);
+
+template <typename T> static inline T vec_shuffle32(T x, int imm);
+template <typename T> static inline T vec_permute2x128(T x, T y, int imm);
+
+template <typename T> static inline T vec_cast_256_128(T x);
+template <typename T> static inline T vec_extract_256_128(T x, int imm);
+
+template <typename T> static inline T vec_convert_16_32(T x);
+template <typename T> static inline int32_t vec_convert_si128_32(T x);
+
 // consts
 static constexpr size_t VEC_ALIGN = 32;
 static const __m256i zeros256 = _mm256_setzero_si256();
@@ -155,14 +206,6 @@ template <> __m128i vec_cast_256_128<__m128i>(__m256i x) {
 
 template <> __m128i vec_extract_256_128<__m128i>(__m256i x, int index) {
     return _mm256_extracti128_si256(x, index);
-}
-
-// min
-template <> __m256i vec_min16<__m256i>(__m256i x, __m256i y) {
-    return _mm256_min_epi16(x, y);
-}
-template <> __m256i vec_min32<__m256i>(__m256i x, __m256i y) {
-    return _mm256_min_epi32(x, y);
 }
 
 
