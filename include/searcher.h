@@ -64,6 +64,9 @@ struct RootMoveScores {
     int QUIET_BASE     = 0;
 };
 
+constexpr int pieceValues[6] = {100, 300, 330, 500, 900, 10000}; 
+
+
 class Searcher {
 public:
     // ------------------------------- VARS -------------------------------
@@ -73,7 +76,6 @@ public:
     //Engine& engine;
     MoveGenerator& movegen; // = engine.movegen
     Board& board; //= engine.search_board;
-    Evaluator& eval; // = engine.evaluator;
     NNUE& nnue; // = engine.nnue;
     TranspositionTable& tt; // = engine.tt
 
@@ -188,6 +190,21 @@ public:
         int search_depth,
         int ply
     );
+
+    // ------------------------------- Static Exchange Evaluation (SEE) -------------------------------
+
+    int SEE(
+        const Board& board,
+        const Move& move
+    );
+
+    U64 attackersTo(
+        const Board& board,
+        int square,
+        bool white,
+        U64 occ
+    );
+
 
     // -------------------------------- Search Reduction Parameters ----------------------------
     int R_lmr(

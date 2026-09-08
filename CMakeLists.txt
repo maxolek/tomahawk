@@ -39,7 +39,6 @@ set(SOURCES
     ${SRC_DIR}/board.cpp
     ${SRC_DIR}/book.cpp
     ${SRC_DIR}/engine.cpp
-    ${SRC_DIR}/evaluator.cpp
     ${SRC_DIR}/gamestate.cpp
     ${SRC_DIR}/helpers.cpp
     ${SRC_DIR}/magics.cpp
