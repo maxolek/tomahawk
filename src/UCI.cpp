@@ -170,10 +170,6 @@ void UCI::handleCommand(const std::string& line) {
         //
     }
     // custom commands
-    else if (token == "static_eval") {
-        // static or tapered evaluation test
-        engine->staticEvalTest();
-    }
     else if (token == "nnue_eval") {
         engine->nnueEvalTest();
     }

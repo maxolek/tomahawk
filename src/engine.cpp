@@ -22,8 +22,8 @@ Engine::Engine() {
     movegen = std::make_unique<MoveGenerator>(search_board);
     tt.clear();
 
-    nnue.load(engine_options.nnue_weight_path);
-    searcher = std::make_unique<Searcher>(search_board, *movegen, evaluator, nnue, tt);
+    nnue.load(nnue_weight_path);
+    searcher = std::make_unique<Searcher>(search_board, *movegen, nnue, tt);
 
     book.load(engine_options.opening_book_path);
 
@@ -42,7 +42,6 @@ void Engine::clearState() {
     search_depth = 0;
     time_left[0] = time_left[1] = 0;
     increment[0] = increment[1] = 0;
-    //evaluator = Evaluator(&precomp);
     //stats = SearchStats();
     g_stats = SearchStats();
     tt.clear();

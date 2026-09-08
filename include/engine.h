@@ -109,7 +109,6 @@ public:
     // search + eval
     std::unique_ptr<Searcher> searcher;
     NNUE nnue; 
-    Evaluator evaluator;                // preload PST tables, eval
     TranspositionTable tt; // outside searcher for future multi-thread
 
     // boards
@@ -163,7 +162,6 @@ public:
     void perftPrint(int depth); // same as perft but print instead of return
     void perftDivide(int depth);
     void SEETest(int capture_square);
-    void staticEvalTest();
     void nnueEvalTest();
     void nnueSIMDTest();
     void moveOrderingTest(int depth);
