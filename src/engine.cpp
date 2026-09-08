@@ -23,9 +23,6 @@ Engine::Engine() {
     tt.clear();
 
     nnue.load(engine_options.nnue_weight_path);
-    evaluator.loadOpeningPST(engine_options.opening_pst_path);
-    evaluator.loadEndgamePST(engine_options.endgame_pst_path);
-
     searcher = std::make_unique<Searcher>(search_board, *movegen, evaluator, nnue, tt);
 
     book.load(engine_options.opening_book_path);
@@ -142,22 +139,6 @@ void Engine::setOption(const std::string& name, const std::string& value) {
     }
 
     // -------- books / paths --------
-    else if (name == "opening_pst_file") {
-        engine_options.opening_pst_path = PROJECT_ROOT / fs::path("bin") / fs::path(value + ".txt");
-        if(evaluator.loadEndgamePST(engine_options.opening_pst_path)) {
-            std::cout << "info string OpeningPST loaded successfully: " << engine_options.opening_pst_path << std::endl;
-        } else {
-            std::cout << "info string Failed to load OpeningPST: " << engine_options.opening_pst_path << std::endl;
-        }
-    }
-    else if (name == "endgame_pst_file") {
-        engine_options.endgame_pst_path = PROJECT_ROOT / fs::path("bin") / fs::path(value + ".txt");
-        if(evaluator.loadEndgamePST(engine_options.endgame_pst_path)) {
-            std::cout << "info string EndgamePST loaded successfully: " << engine_options.endgame_pst_path << std::endl;
-        } else {
-            std::cout << "info string Failed to load EndgamePST: " << engine_options.endgame_pst_path << std::endl;
-        }
-    }
     else if (name == "nnue_weight_file") {
         engine_options.nnue_weight_path = PROJECT_ROOT / fs::path("bin/nnue_wgts") / fs::path(value + ".bin");
         if(nnue.load(engine_options.nnue_weight_path)) {
@@ -699,30 +680,11 @@ void Engine::SEETest(int capture_square) {
         Move m = movegen->moves[i];
         // check if capture (otherwise will incl checks and other qsearch stuff)
         if (m.TargetSquare() == capture_square) {
-            int see = evaluator.SEE(search_board, m);
+            int see = searcher->SEE(search_board, m);
             std::cout << "SEE (" << m.uci() << ") = " << see << std::endl;
         }
     }
 }
-
-void Engine::staticEvalTest() {
-    // Compute opening and endgame reports
-    TaperedEvalReport report = evaluator.Evaluate(search_board, evaluator.PST_opening);
-
-    // For clarity, also compute endgame separately
-    TaperedEvalReport endgame_report = evaluator.Evaluate(search_board, evaluator.PST_endgame);
-
-    // Merge opening/endgame into one tapered report
-    report.opening = report.opening;
-    report.endgame = endgame_report.opening; // endgame components
-    int phase = evaluator.gamePhase(search_board);
-    report.computeTapered(phase, evalWeights);
-
-    std::cout << "=== Static Evaluation ===\n";
-    std::cout << "Phase: " << phase << ") / 256\n";
-    report.printDetailed(evalWeights);
-}
-
 
 void Engine::nnueEvalTest() {
     //nnue.build_accumulators(search_board);

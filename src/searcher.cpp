@@ -27,7 +27,7 @@ bool Searcher::shouldPrune(Move& move, int standPat, int alpha, int search_depth
         && !in_check
     ) {
         // see pruning (bad captures ... excl promo and checks)
-        int seeGain = eval.SEE(board, move);
+        int seeGain = SEE(board, move);
         if (seeGain < params.SEE_PRUNE_THRESHOLD) {
             #ifdef DEV
                 STATS_SEE_PRUNE(search_depth, ply);
@@ -45,6 +45,175 @@ bool Searcher::shouldPrune(Move& move, int standPat, int alpha, int search_depth
     }
 
     return false;
+}
+
+// ============================================================================
+// Static Exchange Evaluation (SEE) 
+// ============================================================================
+
+int Searcher::SEE(const Board& board, const Move& move) {
+    #ifdef DEV
+        ScopedTimer timer(T_SEE);
+    #endif
+
+    int sq = move.TargetSquare();
+    int from = move.StartSquare();
+
+    int moverPt12 = board.sqToPiece[from];
+    int capturedPt12 = board.sqToPiece[sq];
+
+    if (moverPt12 == -1 || capturedPt12 == -1) return 0; // sanity: only captures
+
+    auto pieceType  = [](int pt12){ return pt12 % 6; };
+    auto pieceColor = [](int pt12){ return pt12 / 6; };
+    auto valOf      = [&](int pt){ return pieceValues[pt]; };
+
+    int moverColor = pieceColor(moverPt12);
+
+    // Gain stack
+    int gain[64];
+    int d = 0;
+    gain[d++] = valOf(pieceType(capturedPt12));
+
+    // Side to move for recapture
+    int stm = 1 - moverColor;
+
+    // Used attackers mask
+    U64 used = (1ULL << from);
+
+    // Track current target piece
+    int targetPt12 = moverPt12;
+
+    // Compute attackers for a side
+    auto computeAttackers = [&](int side) -> U64 {
+        U64 attackers = 0ULL;
+        U64 occ = board.colorBitboards[0] | board.colorBitboards[1];
+        U64 color_bb = board.colorBitboards[side];
+
+        for (int pt = 0; pt < 6; ++pt) {
+            U64 bb = board.pieceBitboards[pt] & color_bb & ~used;
+            while (bb) {
+                int sqFrom = getLSB(bb);
+                bb &= bb - 1;
+
+                if (sqFrom < 0 || sqFrom >= 64) continue; 
+                int pt12 = board.sqToPiece[sqFrom];
+                if (pt12 == -1) continue;
+
+                switch (pt) {
+                    case pawn:
+                        if (PrecomputedMoveData::fullPawnAttacks[sq][1 - side] & (1ULL << sqFrom))
+                            attackers |= 1ULL << sqFrom;
+                        break;
+                    case knight:
+                        if (PrecomputedMoveData::blankKnightAttacks[sqFrom] & (1ULL << sq))
+                            attackers |= 1ULL << sqFrom;
+                        break;
+                    case bishop:
+                        if (Magics::bishopAttacks(sqFrom, occ) & (1ULL << sq))
+                            attackers |= 1ULL << sqFrom;
+                        break;
+                    case rook:
+                        if (Magics::rookAttacks(sqFrom, occ) & (1ULL << sq))
+                            attackers |= 1ULL << sqFrom;
+                        break;
+                    case queen:
+                        if ((Magics::bishopAttacks(sqFrom, occ) | Magics::rookAttacks(sqFrom, occ)) & (1ULL << sq))
+                            attackers |= 1ULL << sqFrom;
+                        break;
+                    case king:
+                        if (PrecomputedMoveData::blankKingAttacks[sqFrom] & (1ULL << sq))
+                            attackers |= 1ULL << sqFrom;
+                        break;
+                }
+            }
+        }
+
+        return attackers;
+    };
+
+    U64 attackers[2] = {computeAttackers(0), computeAttackers(1)};
+
+    auto pickLVA = [&](int side, int& fromOut) -> bool {
+        U64 cand = attackers[side] & ~used;
+        if (!cand) return false;
+
+        int bestSq = -1;
+        int bestVal = INT_MAX;
+        while (cand) {
+            int sqFrom = getLSB(cand);
+            cand &= cand - 1;
+            if (sqFrom < 0 || sqFrom >= 64) continue;
+
+            int pt12 = board.sqToPiece[sqFrom];
+            if (pt12 == -1) continue;
+
+            int v = valOf(pieceType(pt12));
+            if (v < bestVal) { bestVal = v; bestSq = sqFrom; }
+        }
+
+        if (bestSq == -1) return false;
+        fromOut = bestSq;
+        return true;
+    };
+
+    while (true) {
+        int fromAtt = -1;
+        if (!pickLVA(stm, fromAtt)) break;
+
+        int attackerPt12 = board.sqToPiece[fromAtt];
+        if (attackerPt12 == -1) break;
+
+        //int attackerVal = valOf(pieceType(attackerPt12));
+        int victimVal   = valOf(pieceType(targetPt12));
+
+        gain[d++] = victimVal - gain[d-1]; // recapture
+
+        used |= 1ULL << fromAtt;
+        targetPt12 = attackerPt12;
+
+        // recompute attackers for next side
+        attackers[0] = computeAttackers(0);
+        attackers[1] = computeAttackers(1);
+
+        stm ^= 1; // switch side
+    }
+
+    // Backtrack for conservative score
+    while (--d > 0) gain[d-1] = -std::max(gain[d], -gain[d-1]);
+
+    return gain[0];
+}
+
+
+U64 Searcher::attackersTo(const Board& board, int sq, bool white, U64 occ) {
+    U64 attackers = 0ULL;
+    U64 color = white ? board.colorBitboards[0] : board.colorBitboards[1];
+
+    // Pawns
+    U64 pawns = board.pieceBitboards[pawn] & color;
+    if (white) {
+        // Which white pawns can capture on sq? Check squares one rank below
+        // Use precomputed pawn attacks from white pawns
+        attackers |= pawns & PrecomputedMoveData::fullPawnAttacks[sq][0]; // 0 = white pawns
+    } else {
+        attackers |= pawns & PrecomputedMoveData::fullPawnAttacks[sq][1]; // 1 = black pawns
+    }
+
+    // Knights
+    attackers |= (color & board.pieceBitboards[knight]) & PrecomputedMoveData::blankKnightAttacks[sq];
+
+    // Kings
+    attackers |= (color & board.pieceBitboards[king]) & PrecomputedMoveData::blankKingAttacks[sq];
+
+    // Sliders
+    U64 bishop_sliders = (color & board.pieceBitboards[bishop]) | (color & board.pieceBitboards[queen]);
+    U64 rook_sliders   = (color & board.pieceBitboards[rook])   | (color & board.pieceBitboards[queen]);
+
+    attackers |= bishop_sliders & Magics::bishopAttacks(sq, occ);
+    attackers |= rook_sliders   & Magics::rookAttacks(sq, occ);
+
+    return attackers;
 }
 
 // ============================================================================
@@ -84,7 +253,7 @@ int Searcher::rootMoveScore(const Move& move, const Move& ttMove, const Move& pv
     if (move.IsPromotion())
         score += root_scores.PROMO_BASE;
 
-    int see_score = eval.SEE(board, move);
+    int see_score = SEE(board, move);
     if (see_score > 0)
         score += root_scores.GOOD_CAP_BASE;
     else 
@@ -113,7 +282,7 @@ int Searcher::moveScore(const Move& move, const Board& boardRef,
         int captured = boardRef.getCapturedPiece(move.TargetSquare());
         seeScore = 0;
         if (captured != -1) {
-            seeScore = eval.SEE(boardRef, move);
+            seeScore = SEE(boardRef, move);
             return seeScore >= 0 ? move_scores.GOOD_CAP_BASE + seeScore + promoBonus
                                  : move_scores.BAD_CAP_BASE  + seeScore + promoBonus;
         }
@@ -124,7 +293,7 @@ int Searcher::moveScore(const Move& move, const Board& boardRef,
     int captured = boardRef.getCapturedPiece(move.TargetSquare());
     if (captured != -1) {
         // SEE
-        seeScore = eval.SEE(boardRef, move);
+        seeScore = SEE(boardRef, move);
         return seeScore >= 0 ? move_scores.GOOD_CAP_BASE + seeScore : move_scores.BAD_CAP_BASE + seeScore;
         // MVVLVA
         //int attacker = board.getMovedPiece(move.StartSquare());

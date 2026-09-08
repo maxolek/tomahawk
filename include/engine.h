@@ -5,7 +5,6 @@
 #include "board.h"
 #include "magics.h"
 #include "moveGenerator.h"
-#include "evaluator.h"
 #include "searcher.h"
 #include "tt.h"
 #include "search_limits.h"
