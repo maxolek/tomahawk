@@ -101,7 +101,6 @@ public:
     Searcher(Board& b, MoveGenerator& mg, Evaluator& ev, NNUE& nn, TranspositionTable& _tt) 
         : board(b), 
           movegen(mg),
-          eval(ev), 
           nnue(nn),
           tt(_tt) {}
 
