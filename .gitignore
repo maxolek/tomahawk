@@ -39,3 +39,5 @@ bin/nnue_wgts/
 
 # misc
 *.DS_STORE
+.aider*
+CONVENTIONS.MD
