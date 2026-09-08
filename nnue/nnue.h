@@ -16,6 +16,9 @@
 #include "accumulator.h"
 #include "utils.h"
 
+#include "network.h"
+#include "accumulator.h"
+
 // ============================================================
 // Network
 // ============================================================

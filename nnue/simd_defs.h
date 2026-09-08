@@ -5,6 +5,8 @@
 
 #ifdef _WIN32
 
+#include <immintrin.h>
+
 // consts
 static constexpr size_t VEC_ALIGN = 32;
 static const __m256i zeros256 = _mm256_setzero_si256();
