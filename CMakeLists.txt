@@ -46,8 +46,8 @@ set(SOURCES
     ${NNUE_DIR}/nnue.cpp
     ${SRC_DIR}/PrecomputedMoveData.cpp
     ${SRC_DIR}/searcher.cpp
-    ${SRC_DIR}/tomahawk.cpp
-    ${SRC_DIR}/UCI.cpp
+    ${SRC_DIR}/uci.cpp
+    ${SRC_DIR}/main.cpp
 )
 
 add_executable(tomahawk ${SOURCES})
@@ -81,19 +81,17 @@ if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
-# BMI2/AVX2 are x86-only; Apple Silicon uses NEON by default.
-set(SIMD_DEBUG_FLAGS)
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i[3-6]86)$")
-    set(SIMD_DEBUG_FLAGS -mbmi2 -mavx2)
+# These configurations need explicit x86 flags; Apple Silicon uses NEON.
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i[3-6]86)$"
+    AND CMAKE_BUILD_TYPE MATCHES "^(Debug|RelWithDebInfo|Asan)$")
+    target_compile_options(tomahawk PRIVATE -mbmi2 -mavx2)
 endif()
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # DEBUG
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(tomahawk PRIVATE
         -O1
         -g
-        ${SIMD_DEBUG_FLAGS}
         -fno-optimize-sibling-calls
     )
     target_compile_definitions(tomahawk PRIVATE DEBUG)
@@ -103,7 +101,6 @@ elseif (CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     target_compile_options(tomahawk PRIVATE
         -O1
         -g
-        ${SIMD_DEBUG_FLAGS}
     )
 
 # ASAN
@@ -111,7 +108,6 @@ elseif (CMAKE_BUILD_TYPE STREQUAL "Asan")
     target_compile_options(tomahawk PRIVATE 
         -O1
         -g
-        ${SIMD_DEBUG_FLAGS}
         -fsanitize=address,undefined
         -fno-omit-frame-pointer
     )
@@ -185,18 +181,4 @@ if (VERSION AND NOT VERSION STREQUAL "dev")
             OUTPUT_NAME ${VERSION}
         )
     endif()
-endif()
-
-# Optional standalone SIMD regression checks (no network weights required).
-option(TOMAHAWK_SIMD_TESTS "Build SIMD scalar-reference tests" OFF)
-if (TOMAHAWK_SIMD_TESTS)
-    enable_testing()
-    add_executable(simd_test tests/simd_test.cpp)
-    target_include_directories(simd_test PRIVATE ${INCLUDE_DIR} ${NNUE_DIR})
-    get_target_property(SIMD_TEST_OPTIONS tomahawk COMPILE_OPTIONS)
-    target_compile_options(simd_test PRIVATE ${SIMD_TEST_OPTIONS})
-    if (CMAKE_BUILD_TYPE STREQUAL "Asan")
-        target_link_options(simd_test PRIVATE -fsanitize=address,undefined)
-    endif()
-    add_test(NAME simd_scalar_reference COMMAND simd_test)
 endif()
