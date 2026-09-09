@@ -11,7 +11,6 @@
 #include "moveGenerator.h"
 
 class Engine;
-class Evaluator;
 class NNUE;
 class MoveGenerator;
 
@@ -98,7 +97,7 @@ public:
 
     // ------------------------------- FUNCS -------------------------------
 
-    Searcher(Board& b, MoveGenerator& mg, Evaluator& ev, NNUE& nn, TranspositionTable& _tt) 
+    Searcher(Board& b, MoveGenerator& mg, NNUE& nn, TranspositionTable& _tt) 
         : board(b), 
           movegen(mg),
           nnue(nn),

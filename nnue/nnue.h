@@ -35,21 +35,21 @@ public:
   
     // ========== L0: 768xINPUT_BUCKETS → 512 ==========
     // Stored column-major: W0[feature][hidden]
-    int16_t l0w[INPUT_SIZE][L1_SIZE];
-    int16_t l0b[L1_SIZE];
+    alignas(VEC_ALIGN) int16_t l0w[INPUT_SIZE][L1_SIZE];
+    alignas(VEC_ALIGN) int16_t l0b[L1_SIZE];
 
     // ========== L1: 512 → 8x16 ==========
     // Dual-perspective: [stm_hidden, ntm_hidden]
-    int8_t l1w[L2_SIZE * NUM_OUTPUT_BUCKETS][L1_SIZE]; // 2*L0_SIZE if not using pairwise multiply
-    int32_t l1b[L2_SIZE * NUM_OUTPUT_BUCKETS];          // otherwise the concat is reduced back down to L0_SIZE
+    alignas(VEC_ALIGN) int8_t l1w[L2_SIZE * NUM_OUTPUT_BUCKETS][L1_SIZE]; // 2*L0_SIZE if not using pairwise multiply
+    alignas(VEC_ALIGN) int32_t l1b[L2_SIZE * NUM_OUTPUT_BUCKETS];          // otherwise the concat is reduced back down to L0_SIZE
 
     // ========== L2: 16 → 8x32 ==========
-    int8_t l2w[L3_SIZE * NUM_OUTPUT_BUCKETS][L2_SIZE];
-    int32_t l2b[L3_SIZE * NUM_OUTPUT_BUCKETS];
+    alignas(VEC_ALIGN) int8_t l2w[L3_SIZE * NUM_OUTPUT_BUCKETS][L2_SIZE];
+    alignas(VEC_ALIGN) int32_t l2b[L3_SIZE * NUM_OUTPUT_BUCKETS];
 
     // ========== L3: 32 → NUM_OUTPUT_BUCKETS ==========
-    int8_t l3w[NUM_OUTPUT_BUCKETS][L3_SIZE];
-    int32_t l3b[NUM_OUTPUT_BUCKETS];
+    alignas(VEC_ALIGN) int8_t l3w[NUM_OUTPUT_BUCKETS][L3_SIZE];
+    alignas(VEC_ALIGN) int32_t l3b[NUM_OUTPUT_BUCKETS];
 
     // constructors 
     NNUE() {};
