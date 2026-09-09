@@ -230,8 +230,8 @@ inline int64_t dot_i64_i8(const int64_t* a, const int8_t* w, int size) {
                             );
         vec256_t a_hi_adj = vec_add64<vec256_t>(a_hi, carry);
 
-        vec256_t lo_prod = vec_mullo32<vec256_t>(a_lo, wv);      // a_lo_signed * w  (exact 64-bit)
-        vec256_t hi_prod = vec_mullo32<vec256_t>(a_hi_adj, wv);  // (a_hi + carry) * w
+        vec256_t lo_prod = vec_mul32<vec256_t>(a_lo, wv);      // a_lo_signed * w  (exact 64-bit)
+        vec256_t hi_prod = vec_mul32<vec256_t>(a_hi_adj, wv);  // (a_hi + carry) * w
 
         vec256_t prod = vec_add64<vec256_t>(lo_prod, vec_shift_left64<vec256_t>(hi_prod, 32));
         acc = vec_add64<vec256_t>(acc, prod);
@@ -252,8 +252,8 @@ inline int64_t dot_i32_i8_widen(const int32_t* a, const int8_t* w, int size) {
 
         // _mm256_mul_epi32 reads the low 32 bits of each 64-bit lane, signed,
         // and produces a true 64-bit product -- widening, no overflow.
-        vec256_t lo = vec_mullo32<vec256_t>(av, wv);                                     // lanes 0,2,4,6
-        vec256_t hi = vec_mullo32<vec256_t>(vec_shift_right32<vec256_t>(av, 4), vec_shift_right32<vec256_t>(wv, 4)); // lanes 1,3,5,7
+        vec256_t lo = vec_mul32<vec256_t>(av, wv);                                     // lanes 0,2,4,6
+        vec256_t hi = vec_mul32<vec256_t>(vec_shift_right256<vec256_t>(av, 4), vec_shift_right256<vec256_t>(wv, 4)); // lanes 1,3,5,7
 
         acc_lo = vec_add64<vec256_t>(acc_lo, lo);
         acc_hi = vec_add64<vec256_t>(acc_hi, hi);
@@ -299,8 +299,8 @@ inline void activate_screlu64(const int32_t* in, int64_t* out, int size, int32_t
         v = vec_clamp32<vec256_t>(v, zero, qa);         // clamp in 32-bit, values are small enough here
 
         // widening square: 32x32 -> 64, 4 lanes at a time, done twice for 8 int32 inputs
-        vec256_t lo = vec_mullo32<vec256_t>(v, v);                                    // squares elements 0,2,4,6 -> 64-bit
-        vec256_t hi = vec_mullo32<vec256_t>(vec_shift_right32<vec256_t>(v, 4), vec_shift_right32<vec256_t>(v, 4)); // elements 1,3,5,7
+        vec256_t lo = vec_mul32<vec256_t>(v, v);                                    // squares elements 0,2,4,6 -> 64-bit
+        vec256_t hi = vec_mul32<vec256_t>(vec_shift_right256<vec256_t>(v, 4), vec_shift_right256<vec256_t>(v, 4)); // elements 1,3,5,7
         // unpacklo/hi only interleave within each 128-bit half:
         //   u_lo = [v0²,v1²,v4²,v5²]   u_hi = [v2²,v3²,v6²,v7²]
         vec256_t u_lo = vec_unpacklo64<vec256_t>(lo, hi);

@@ -21,10 +21,9 @@ template <typename T> static inline T vec_unpackhi64(T x, T y);
 template <typename T_out, typename T_in> static inline T_out vec_lo_half(T_in x);
 template <typename T_out, typename T_in> static inline T_out vec_hi_half(T_in x);
 
-template <typename T> static inline T vec_shift_left32(T x, int shift);
 template <typename T> static inline T vec_shift_left64(T x, int shift);
-template <typename T> static inline T vec_shift_right32(T x, int shift);
 template <typename T> static inline T vec_shift_right64(T x, int shift);
+template <typename T> static inline T vec_shift_right256(T x, int shift);
 
 template <typename T> static inline T vec_add16(T x, T y);
 template <typename T> static inline T vec_add32(T x, T y);
@@ -125,20 +124,17 @@ template <> vec256_t vec_unpackhi64<vec256_t>(vec256_t x, vec256_t y) {
 }
 
 // shift
-template <> vec256_t vec_shift_left32<vec256_t>(vec256_t x, int shift) { 
-    return _mm256_slli_epi32(x, shift); 
-}
 template <> vec256_t vec_shift_left64<vec256_t>(vec256_t x, int shift) { 
     return _mm256_slli_epi64(x, shift); 
-}
-
-template <> vec256_t vec_shift_right32<vec256_t>(vec256_t x, int shift) { 
-    return _mm256_srli_epi32(x, shift); 
 }
 template <> vec256_t vec_shift_right64<vec256_t>(vec256_t x, int shift) { 
     return _mm256_srli_epi64(x, shift); 
 }
+template <> vec256_t vec_shift_right256<vec256_t>(vec256_t x, int shift) {
+    return _mm256_srli_si256(x, shift);
+}
 
+// halves
 template <> vec256_t vec_lo_half<vec256_t>(vec256_t x) { 
     const vec256_t mask_lo32 = vec_set_64<vec256_t>(0xFFFFFFFFLL);
     return _mm256_and_si256(x, mask_lo32); 
@@ -170,6 +166,15 @@ template <> vec256_t vec_sub16<vec256_t>(vec256_t x, vec256_t y) {
 }
 template <> vec256_t vec_sub32<vec256_t>(vec256_t x, vec256_t y) { 
     return _mm256_sub_epi32(x, y); 
+}
+
+// widening (multiply)
+//  reads low 32 bits of each 64-bit lane
+//  (even-indexed 32-bit lanes 0,2,4,6) and produces genuine 64-bit products
+//  distinct from vec_mullo32 which truncates every lane back to 32 bits
+//  (computes 4 64-bit products, not 8 32-bit like mullo)
+template <> vec256_t vec_mul32<vec256_t>(vec256_t x, vec256_t y) {
+    return _mm256_mul_epi32(x, y);
 }
 
 // multiply
