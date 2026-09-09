@@ -4,7 +4,7 @@
 #include "engine.h"
 #include "search_limits.h"
 #include "helpers.h"
-#include "stats.h"
+#include "search_stats.h"
 #include "timer.h"
 #include "nnue.h"
 #include "tt.h"

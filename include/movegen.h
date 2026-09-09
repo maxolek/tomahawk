@@ -7,7 +7,7 @@
 
 #include "helpers.h"
 #include "magics.h"
-#include "move_data.h"
+#include "precomp.h"
 #include "move.h"
 #include "board.h"
 

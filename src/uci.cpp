@@ -2,7 +2,7 @@
 #include <vector>
 #include <string>
 #include <iostream>
-#include <stats.h>
+#include <search_stats.h>
 
 
 namespace fs = std::filesystem;

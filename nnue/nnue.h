@@ -9,7 +9,7 @@
 
 #include "board.h"
 #include "move.h"
-#include "stats.h"
+#include "search_stats.h"
 #include "timer.h"
 #include "simd.h"
 #include "network.h"

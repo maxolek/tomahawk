@@ -44,7 +44,7 @@ set(SOURCES
     ${SRC_DIR}/magics.cpp
     ${SRC_DIR}/movegen.cpp
     ${SRC_DIR}/nnue.cpp
-    ${SRC_DIR}/move_data.cpp
+    ${SRC_DIR}/precomp.cpp
     ${SRC_DIR}/searcher.cpp
     ${SRC_DIR}/uci.cpp
     ${SRC_DIR}/main.cpp
