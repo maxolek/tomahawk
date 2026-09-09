@@ -3,7 +3,7 @@
 // looks for valid:
 // sliding moves, king moves, pins, captures, etc.
 
-#include <moveGenerator.h>
+#include <movegen.h>
 
 MoveGenerator::MoveGenerator(const Board& _board) {
     // load movegen at given state

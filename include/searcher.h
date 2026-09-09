@@ -8,7 +8,7 @@
 #include "timer.h"
 #include "nnue.h"
 #include "tt.h"
-#include "moveGenerator.h"
+#include "movegen.h"
 
 class Engine;
 class NNUE;

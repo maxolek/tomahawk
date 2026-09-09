@@ -1,6 +1,6 @@
 // Precomputed blank board attack masks for all the pieces
-#ifndef PRECOMPUTEDMOVEDATA_H
-#define PRECOMPUTEDMOVEDATA_H
+#ifndef MOVE_DATA_H
+#define MOVE_DATA_H
 
 #include "bits.h"
 #include <cstdint>

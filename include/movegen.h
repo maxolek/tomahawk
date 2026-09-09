@@ -1,13 +1,13 @@
-// MoveGenerator.h
+// movegen.h
 // Responsible for generating pseudo-legal and legal chess moves, including sliding moves,
 // knight moves, king moves, pawn moves, captures, checks, pins, and en-passant legality.
 
-#ifndef MOVEGENERATOR_H
-#define MOVEGENERATOR_H
+#ifndef MOVEGEN_H
+#define MOVEGEN_H
 
 #include "helpers.h"
 #include "magics.h"
-#include "PrecomputedMoveData.h"
+#include "move_data.h"
 #include "move.h"
 #include "board.h"
 

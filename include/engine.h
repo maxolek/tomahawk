@@ -4,7 +4,7 @@
 
 #include "board.h"
 #include "magics.h"
-#include "moveGenerator.h"
+#include "movegen.h"
 #include "searcher.h"
 #include "tt.h"
 #include "search_limits.h"
