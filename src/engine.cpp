@@ -22,7 +22,7 @@ Engine::Engine() {
     movegen = std::make_unique<MoveGenerator>(search_board);
     tt.clear();
 
-    nnue.load(nnue_weight_path);
+    nnue.load(engine_options.nnue_weight_path);
     searcher = std::make_unique<Searcher>(search_board, *movegen, nnue, tt);
 
     book.load(engine_options.opening_book_path);

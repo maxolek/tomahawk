@@ -73,15 +73,12 @@ struct EngineOptions {
     bool PONDERING        = false;
     bool UCI_SHOW_WDL     = false;
 
-    fs::path opening_pst_path  = fs::path(PROJECT_ROOT) / "bin/pst/pst_opening.txt";
-    fs::path endgame_pst_path  = fs::path(PROJECT_ROOT) / "bin/pst/pst_endgame.txt";                    // small net
+    // big      net : 1024_16_32_pairmul_screlu  
+    // small    net : output_buckets_25wdl_1000  
+    // original net : 768_128x
     fs::path nnue_weight_path  = fs::path(PROJECT_ROOT) / "nnue/weights/1024_16_32_pairmul_screlu_leela99.bin"; // 1024_16_32_pairmul_screlu  output_buckets_25wdl_1000  768_128x
     fs::path opening_book_path = fs::path(PROJECT_ROOT) / "bin/Titans.bin";
     fs::path syzygy_path       = fs::path(PROJECT_ROOT);
-
-    // 768_128x2
-    // halfka_1024
-    // 768x512
 };
 
 // ------------------
