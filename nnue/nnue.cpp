@@ -197,8 +197,8 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
 
         // activate + pairwise multiply (+ concat)
         for (int i = 0; i < L1_SIZE; i++) {
-            stm_activated[i] = crelu(us->vals[i], QA);
-            ntm_activated[i] = crelu(them->vals[i], QA);
+            stm_activated[i] = crelu<int32_t>(us->vals[i], QA);
+            ntm_activated[i] = crelu<int32_t>(them->vals[i], QA);
         }
         pairwise_mul(stm_activated, ntm_activated, l1_pair_mul);
         
@@ -255,8 +255,7 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
     return out64;
 }
 
-#ifdef _WIN32
-// AVX2 -- 32 int8
+// AVX2 / NEON -- 32 int8
 //      -- 16 int16
 //      -- 8  int32
 //      -- 4  int64
@@ -340,7 +339,6 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
 
     return (int)out;
 }
-#endif
 
 int NNUE::full_eval(const Board& b) {
     build_halfka_accumulators(b); // build_accumulators(b);
@@ -691,7 +689,6 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
 // Debug helpers
 // ============================================================
 
-#ifdef _WIN32
 void NNUE::debug_simd(const Board& b) {
     build_halfka_accumulators(b);
     U64 occ = b.colorBitboards[0] | b.colorBitboards[1];
@@ -706,8 +703,8 @@ void NNUE::debug_simd(const Board& b) {
     int32_t stm_act_s[L1_SIZE], ntm_act_s[L1_SIZE];
     alignas(32) int16_t stm_act_v[L1_SIZE], ntm_act_v[L1_SIZE];
     for (int i = 0; i < L1_SIZE; i++) {
-        stm_act_s[i] = crelu(us->vals[i], QA);
-        ntm_act_s[i] = crelu(them->vals[i], QA);
+        stm_act_s[i] = crelu<int32_t>(us->vals[i], QA);
+        ntm_act_s[i] = crelu<int32_t>(them->vals[i], QA);
     }
     activate_crelu(us->vals,   stm_act_v, L1_SIZE, QA);
     activate_crelu(them->vals, ntm_act_v, L1_SIZE, QA);
@@ -870,7 +867,6 @@ void NNUE::debug_simd(const Board& b) {
     int total = mm_act1 + mm_pair + mm_l2in + mm_act2 + mm_l3in + mm_act3 + (out_s != out_v ? 1 : 0);
     std::cerr << "=== debug_simd summary: " << total << " total mismatches across all stages ===\n";
 }
-#endif
 
 void NNUE::debug_acc_full(const Accumulator& acc, const std::string& name) const {
     int32_t sum = 0, minv = acc.vals[0], maxv = acc.vals[0];
@@ -884,17 +880,6 @@ void NNUE::debug_acc_full(const Accumulator& acc, const std::string& name) const
     for (int i = 0; i < 8; ++i) std::cout << acc.vals[i] << (i < 7 ? "," : "");
     std::cout << "]\n";
 }
-
-int NNUE::evaluate_debug(bool is_white_move) const {
-    debug_acc_full(acc_stm, "STM before screlu");
-    debug_acc_full(acc_ntm, "NTM before screlu");
-
-    debug_evaluate(acc_stm, acc_ntm);
-
-    //return NNUE::evaluate(is_white_move);
-    return 0;
-}
-
 
 // Utility: Compare two accumulators and print differing feature indices and values
 

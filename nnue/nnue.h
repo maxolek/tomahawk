@@ -82,12 +82,10 @@ public:
     void debug_simd(const Board& b);
     void debug_acc(const Accumulator& acc, const std::string& name) const;
     void debug_acc_full(const Accumulator& acc, const std::string& name) const;
-    void debug_evaluate(const Accumulator& us, const Accumulator& them) const;
     void debug_on_move(const std::string& name, const Move& mv, int color, int moved_piece,
                          int f_from, int f_to) const;
     void on_make_move_debug(const Board& before, const Move& mv);
     void on_unmake_move_debug(const Board& board, const Move& mv);
-    int evaluate_debug(bool is_white_move) const;
     void debug_check_incr_vs_full_after_make(
         const Board& before,
         const Move& mv,

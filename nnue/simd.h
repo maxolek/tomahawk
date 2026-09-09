@@ -5,8 +5,6 @@
 #include "network.h"
 #include "simd_defs.h"
 
-#ifdef _WIN32
-
 // --------- Accumulator -------------
 
 inline void init_bias_simd(const int16_t* bias, int16_t* vals) {
@@ -211,7 +209,10 @@ inline int64_t dot_i64_i8(const int64_t* a, const int8_t* w, int size) {
         vec256_t av = vec_load<int64_t, vec256_t>(a + i);
 
         // widen 4 int8 weights -> 4 int64 (sign-extended)
-        vec128_t w8   = vec_load<int8_t, vec128_t>(w + i); // loads 8 bytes, only low 4 used
+        // Only four weights remain in the final iteration: avoid an 8-byte overread.
+        int8_t weights[8] = {};
+        std::memcpy(weights, w + i, 4);
+        vec128_t w8   = vec_load<int8_t, vec128_t>(weights);
         vec256_t w32  = vec_convert_8_32<vec128_t, vec256_t>(w8);       // low 8 int8 -> 8 int32
         vec128_t w32l = vec_cast_256_128<vec256_t, vec128_t>(w32);    // low 4 int32 == w[i..i+3]
         vec256_t wv   = vec_convert_32_64<vec128_t, vec256_t>(w32l);    // 4 int64, sign-extended
@@ -264,9 +265,9 @@ inline int64_t dot_i32_i8_widen(const int32_t* a, const int8_t* w, int size) {
 
 // ----------- activations -------------
 
-inline void activate_crelu(const int16_t* in, int16_t* out, int size, int QA) {
+inline void activate_crelu(const int16_t* in, int16_t* out, int size, int clamp_bound) {
     const vec256_t zero = zeros256;
-    const vec256_t qa   = vec_set_16<vec256_t>(QA);
+    const vec256_t qa   = vec_set_16<vec256_t>(static_cast<int16_t>(clamp_bound));
     for (int i = 0; i < size; i += 16) {
         vec256_t v       = vec_load<int16_t, vec256_t>(in + i);
         vec256_t clipped = vec_clamp16<vec256_t>(v, zero, qa);
@@ -275,11 +276,11 @@ inline void activate_crelu(const int16_t* in, int16_t* out, int size, int QA) {
 }
 
 // fold SCRELU into multiply-add
-inline void activate_screlu32(const int32_t* in, int32_t* out, int size, int QA) {
+inline void activate_screlu32(const int32_t* in, int32_t* out, int size, int clamp_bound) {
     // TYPE = int32 or int64
     // handled the same (int16 is different)
     const vec256_t zero = zeros256;
-    const vec256_t qa   = vec_set_32<vec256_t>(QA);
+    const vec256_t qa   = vec_set_32<vec256_t>(clamp_bound);
 
     for (int i = 0; i < size; i += 8) {
         vec256_t v = vec_load<int32_t, vec256_t>(in + i);
@@ -314,7 +315,5 @@ inline void activate_screlu64(const int32_t* in, int64_t* out, int size, int32_t
         vec_store<vec256_t, int64_t>(out + i + 4, out_hi);
     }
 }
-
-#endif // _WIN32
 
 #endif // SIMD_H
