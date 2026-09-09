@@ -8,6 +8,9 @@
 
 namespace Magics {
 
+// ============================================================
+// PEXT (BMI2 Instructions)
+// ============================================================
 #ifdef _WIN32
     struct PextTable {
         U64 mask;
@@ -46,7 +49,12 @@ namespace Magics {
         const PextTable& t = bishopPext[sq]; // bishop[sq];
         return bishopAttackTable[t.offset + _pext_u64(occ, t.mask)];
     }
+
+// ============================================================
+// Basic Magic Bitboards (sparse, no tricks)
+// ============================================================
 #else
+
     extern U64 rookAttackTable[64][4096]; // precompute and store
     extern U64 bishopAttackTable[64][512];
     extern U64 rookMasks[64];
