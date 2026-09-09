@@ -81,6 +81,9 @@ template <> inline void vec_set_zero(vec256_t &x) { x = zeros256; }
 template <> inline vec128_t vec_load<int8_t, vec128_t>(const int8_t* x) { // different load function due to immediate registry widening in dot functions
     return _mm_loadl_epi64(reinterpret_cast<const vec128_t*>(x)); // load 8 bytes (64 bits) into low half of vec128_t
 }
+template <> inline vec128_t vec_load<int16_t, vec128_t>(const int16_t* x) {
+    return _mm_loadu_si128(reinterpret_cast<const vec128_t*>(x));
+}
 template <> inline vec256_t vec_load<int16_t, vec256_t>(const int16_t* x) { 
     return _mm256_load_si256(reinterpret_cast<const vec256_t*>(x)); 
 }
@@ -296,6 +299,9 @@ template <> inline vec128_t vec_load<int8_t, vec128_t>(const int8_t* x) {
     // load 8 bytes into the low half, zero-fill the high half -- matches
     // _mm_loadl_epi64 (see simd_defs.h note on why int8 differs from the rest)
     return vcombine_s8(vld1_s8(x), vdup_n_s8(0));
+}
+template <> inline vec128_t vec_load<int16_t, vec128_t>(const int16_t* x) {
+    return vreinterpretq_s8_s16(vld1q_s16(x));
 }
 template <> inline vec256_t vec_load<int16_t, vec256_t>(const int16_t* x) {
     return {

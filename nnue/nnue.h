@@ -62,7 +62,17 @@ public:
     int evaluate(bool is_white_move, U64 occ); 
     int eval_simd(bool is_white_move, U64 occ);
     int full_eval(const Board& b);
-    //int eval_smallnet(bool is_white_move, U64 occ)
+    // Direct SCReLU -> output forward passes, available for alternate heads.
+    // Supply decoded output-major weights and matching quantization; the active
+    // loader and multi-layer evaluation do not populate or select this head.
+    int eval_screlu(bool is_white_move, U64 occ,
+                    const int16_t (&weights)[NUM_OUTPUT_BUCKETS][2 * L1_SIZE],
+                    const int32_t (&biases)[NUM_OUTPUT_BUCKETS],
+                    int16_t qa = 255, int qb = 64);
+    int eval_screlu_simd(bool is_white_move, U64 occ,
+                         const int16_t (&weights)[NUM_OUTPUT_BUCKETS][2 * L1_SIZE],
+                         const int32_t (&biases)[NUM_OUTPUT_BUCKETS],
+                         int16_t qa = 255, int qb = 64);
 
     // Incremental updates for search
     void on_make_move(const Board& board, const Move& mv);
