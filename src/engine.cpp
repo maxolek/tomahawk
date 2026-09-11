@@ -23,6 +23,7 @@ Engine::Engine() {
     tt.clear();
 
     nnue.load(engine_options.nnue_weight_path);
+    //nnue.loadSmall(engine_options.nnue_weight_path);
     searcher = std::make_unique<Searcher>(search_board, *movegen, nnue, tt);
 
     book.load(engine_options.opening_book_path);
@@ -141,6 +142,7 @@ void Engine::setOption(const std::string& name, const std::string& value) {
     else if (name == "nnue_weight_file") {
         engine_options.nnue_weight_path = PROJECT_ROOT / fs::path("bin/nnue_wgts") / fs::path(value + ".bin");
         if(nnue.load(engine_options.nnue_weight_path)) {
+        //if(nnue.loadSmall(engine_options.nnue_weight_path)) {
             std::cout << "info string NNUE loaded successfully: " << engine_options.nnue_weight_path << std::endl;
         } else {
             std::cout << "info string Failed to load NNUE: " << engine_options.nnue_weight_path << std::endl;

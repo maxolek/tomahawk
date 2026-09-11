@@ -38,6 +38,10 @@ constexpr int QB = 64;  // L1 weights
 constexpr int QC = 64;  // L2+3 weights
 constexpr int SCALE = 400;
 
+// small net
+constexpr int qa_small = 255;
+constexpr int hl_size = 1024; // + concat x2
+
 /* --------- SMALL NET -------------------
 
     the simd for this is also not as tightly optimized as the larger net

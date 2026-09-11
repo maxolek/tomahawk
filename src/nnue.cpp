@@ -112,6 +112,60 @@ bool NNUE::load(const fs::path& path) {
     return true;
 }
 
+bool NNUE::loadSmall(const fs::path& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) {
+        std::cerr << "NNUE: failed to open " << path << "\n";
+        return false;
+    }
+
+    constexpr std::streamoff expected =
+        (std::streamoff)sizeof(l0w) +
+        (std::streamoff)sizeof(l0b) +
+        (std::streamoff)sizeof(l1w_small) +
+        (std::streamoff)sizeof(l1b_small);
+
+    f.seekg(0, std::ios::end);
+    const std::streamoff file_size = f.tellg();
+    f.seekg(0, std::ios::beg);
+
+    if (file_size < expected) {
+        std::cerr << "NNUE: file too small: "
+                  << file_size << " bytes, expected at least "
+                  << expected << "\n";
+        return false;
+    }
+
+    // Read the tensor block.
+    std::vector<uint8_t> data(static_cast<size_t>(expected));
+
+    f.read(
+        reinterpret_cast<char*>(data.data()),
+        expected
+    );
+
+    if (!f) {
+        std::cerr << "NNUE: failed to read network data\n";
+        return false;
+    }
+
+    const uint8_t* p = data.data();
+
+    // L0 (input-major column reader)
+    decode_bullet_l0w(p, l0w);
+    p += sizeof(l0w);
+    std::memcpy(l0b, p, sizeof(l0b));
+    p += sizeof(l0b);
+
+    // L1  (in = L1_SIZE, out = L2_SIZE * NUM_OUTPUT_BUCKETS)
+    std::memcpy(&l1w_small, p, sizeof(l1w_small));
+    p += sizeof(l1w_small);
+    std::memcpy(&l1b_small, p, sizeof(l1b_small));   // bias is 1-D, memcpy is fine
+    p += sizeof(l1b_small);
+
+    return true;
+}
+
 
 // ============================================================
 // Build accumulators fully from board (STM/NTM)
@@ -334,29 +388,37 @@ int NNUE::full_eval(const Board& b) {
 
 // Direct output head over both accumulator perspectives. Division order
 // matches the quantized SCReLU training formula (including negative truncation).
-int NNUE::eval_screlu(bool is_white_move, U64 occ,
-                      const int16_t (&weights)[NUM_OUTPUT_BUCKETS][2 * L1_SIZE],
-                      const int32_t (&biases)[NUM_OUTPUT_BUCKETS], int16_t qa, int qb) {
+int NNUE::eval_screlu(bool is_white_move, U64 occ) {
     const auto* us = is_white_move ? acc_stm.vals : acc_ntm.vals;
     const auto* them = is_white_move ? acc_ntm.vals : acc_stm.vals;
     const int bucket = output_bucket(occ);
     int64_t sum = 0;
-    for (int i = 0; i < L1_SIZE; ++i) {
-        sum += screlu<int64_t>(us[i], qa) * weights[bucket][i];
-        sum += screlu<int64_t>(them[i], qa) * weights[bucket][L1_SIZE + i];
+
+    for (int i = 0; i < hl_size; ++i) {
+        sum += screlu<int64_t>(us[i], qa_small) * l1w_small[bucket][i];
+        sum += screlu<int64_t>(them[i], qa_small) * l1w_small[bucket][hl_size + i];
     }
-    return static_cast<int>((sum / qa + biases[bucket]) * SCALE / (int64_t(qa) * qb));
+
+    sum /= (int64_t)(qa_small);
+    sum += (int64_t)l1b_small[bucket];
+    sum *= SCALE;
+    sum /= int64_t(qa_small * QB);
+    return sum;
 }
 
-int NNUE::eval_screlu_simd(bool is_white_move, U64 occ,
-                           const int16_t (&weights)[NUM_OUTPUT_BUCKETS][2 * L1_SIZE],
-                           const int32_t (&biases)[NUM_OUTPUT_BUCKETS], int16_t qa, int qb) {
+int NNUE::eval_screlu_simd(bool is_white_move, U64 occ) {
     const auto* us = is_white_move ? acc_stm.vals : acc_ntm.vals;
     const auto* them = is_white_move ? acc_ntm.vals : acc_stm.vals;
     const int bucket = output_bucket(occ);
-    const int64_t sum = dot_screlu_i16(us, weights[bucket], qa)
-                      + dot_screlu_i16(them, weights[bucket] + L1_SIZE, qa);
-    return static_cast<int>((sum / qa + biases[bucket]) * SCALE / (int64_t(qa) * qb));
+
+    const int64_t sum = dot_screlu_i16(us, l1w_small[bucket], qa_small)
+                      + dot_screlu_i16(them, l1w_small[bucket] + hl_size, qa_small);
+    
+    // equivalent to the explicit ordering above
+    return static_cast<int>(
+        (sum / qa_small + l1b_small[bucket]) * SCALE 
+        / (int64_t(qa_small * QB))
+    );
 }
 
 // ============================================================

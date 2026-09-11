@@ -32,6 +32,13 @@ public:
     //      changed to pointers for integration with DEBUG class
     Accumulator acc_stm;
     Accumulator acc_ntm;
+
+    // ========== SMALL NET 1024x2 ==============
+
+    alignas(VEC_ALIGN) int16_t l1w_small[NUM_OUTPUT_BUCKETS][2*hl_size];
+    alignas(VEC_ALIGN) int16_t l1b_small[NUM_OUTPUT_BUCKETS];
+
+    // ----------- BIG NET 1024-16-32 ---------------
   
     // ========== L0: 768xINPUT_BUCKETS → 512 ==========
     // Stored column-major: W0[feature][hidden]
@@ -57,6 +64,7 @@ public:
 
     // Load quantised network
     bool load(const fs::path& path);
+    bool loadSmall(const fs::path& path);
 
     // Compute final output from accumulators
     int evaluate(bool is_white_move, U64 occ); 
@@ -65,14 +73,8 @@ public:
     // Direct SCReLU -> output forward passes, available for alternate heads.
     // Supply decoded output-major weights and matching quantization; the active
     // loader and multi-layer evaluation do not populate or select this head.
-    int eval_screlu(bool is_white_move, U64 occ,
-                    const int16_t (&weights)[NUM_OUTPUT_BUCKETS][2 * L1_SIZE],
-                    const int32_t (&biases)[NUM_OUTPUT_BUCKETS],
-                    int16_t qa = 255, int qb = 64);
-    int eval_screlu_simd(bool is_white_move, U64 occ,
-                         const int16_t (&weights)[NUM_OUTPUT_BUCKETS][2 * L1_SIZE],
-                         const int32_t (&biases)[NUM_OUTPUT_BUCKETS],
-                         int16_t qa = 255, int qb = 64);
+    int eval_screlu(bool is_white_move, U64 occ);
+    int eval_screlu_simd(bool is_white_move, U64 occ);
 
     // Incremental updates for search
     void on_make_move(const Board& board, const Move& mv);
