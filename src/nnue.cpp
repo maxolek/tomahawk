@@ -310,7 +310,7 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
     // pre-set layer array
     alignas(32) int16_t us_act[L1_SIZE];
     alignas(32) int16_t them_act[L1_SIZE];
-    alignas(32) int32_t l1_out[L1_SIZE];
+    alignas(32) int16_t l1_out[L1_SIZE];
     alignas(32) int32_t l2_in[L2_SIZE];
     alignas(32) int32_t l2_act[L2_SIZE];
     alignas(32) int32_t l3_in[L3_SIZE];
@@ -330,15 +330,13 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
     // pairwise multiply + concat
     pairwise_mul_simd(us_act, them_act, l1_out);
 
-    // weight transform
-    //  AVX2 doesnt have int16 x int8 directly
-    //  so widen weights to in16
+    // First-layer products and sums fit int16 and int32 respectively.
     for (int o = 0; o < L2_SIZE; o++) {
         const int8_t* w = l1w[bucket * L2_SIZE + o];
         const int32_t bias = l1b[bucket * L2_SIZE + o];
 
         // create layer nodes (pre-activation)
-        int64_t sum = dot_i32_i8_widen(l1_out, w, L1_SIZE);
+        int64_t sum = dot_pairwise_i16_i8(l1_out, w);
 
         sum /= QA; // (QA*QA)*QB -. QA*QB
         sum += bias;

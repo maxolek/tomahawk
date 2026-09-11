@@ -37,6 +37,9 @@ template <typename T> static inline T vec_mullo16(T x, T y);
 template <typename T> static inline T vec_mullo32(T x, T y);
 template <typename T> static inline T vec_mulhi16(T x, T y);
 template <typename T> static inline T vec_mulhi32(T x, T y);
+// Accumulate 16 signed products into int32 lanes. Lane grouping is platform
+// specific; callers must horizontally sum all lanes to obtain the dot product.
+template <typename T> static inline T vec_madd_i16_i8(T acc, T values, const int8_t* weights);
 
 template <typename T> static inline T vec_clamp16(T x, T min, T max);
 template <typename T> static inline T vec_clamp32(T x, T min, T max);
@@ -181,6 +184,11 @@ template <> inline vec256_t vec_mul32<vec256_t>(vec256_t x, vec256_t y) {
 }
 
 // multiply
+template <> inline vec256_t vec_madd_i16_i8<vec256_t>(vec256_t acc, vec256_t values, const int8_t* weights) {
+    const auto w = _mm256_cvtepi8_epi16(_mm_loadu_si128(reinterpret_cast<const __m128i*>(weights)));
+    return _mm256_add_epi32(acc, _mm256_madd_epi16(values, w));
+}
+
 template <> inline vec256_t vec_mullo16<vec256_t>(vec256_t x, vec256_t y) { 
     return _mm256_mullo_epi16(x, y); 
 }
@@ -448,6 +456,17 @@ template <> inline vec256_t vec_mul32<vec256_t>(vec256_t x, vec256_t y) {
 }
 
 // multiply
+template <> inline vec256_t vec_madd_i16_i8<vec256_t>(vec256_t acc, vec256_t values, const int8_t* weights) {
+    const int8x16_t w = vld1q_s8(weights);
+    auto half = [](int8x16_t sum, int8x16_t a, int16x8_t b) {
+        const int16x8_t av = vreinterpretq_s16_s8(a);
+        auto result = vmlal_s16(vreinterpretq_s32_s8(sum), vget_low_s16(av), vget_low_s16(b));
+        return vreinterpretq_s8_s32(vmlal_high_s16(result, av, b));
+    };
+    return { half(acc.lo, values.lo, vmovl_s8(vget_low_s8(w))),
+             half(acc.hi, values.hi, vmovl_high_s8(w)) };
+}
+
 template <> inline vec256_t vec_mullo16<vec256_t>(vec256_t x, vec256_t y) {
     return {
         vreinterpretq_s8_s16(vmulq_s16(vreinterpretq_s16_s8(x.lo), vreinterpretq_s16_s8(y.lo))),

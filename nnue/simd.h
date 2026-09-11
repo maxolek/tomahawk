@@ -84,6 +84,22 @@ inline void add_sub_feature_simd(const int16_t* add_col, const int16_t* sub_col,
 
 // ---------- feature transformer -----------
 
+// Preserve the pairwise products in int16 for the first dense layer.
+inline void pairwise_mul_simd(const int16_t* stm, const int16_t* ntm, int16_t* result) {
+    static_assert(QA > 0 && int64_t(QA) * QA <= INT16_MAX,
+                  "Pairwise activations must fit signed int16");
+    static_assert(L1_SIZE % 32 == 0, "Each perspective must contain whole SIMD vectors");
+    constexpr int HALF = L1_SIZE / 2;
+    for (int i = 0; i < HALF; i += 16) {
+        const auto us = vec_mullo16(vec_load<int16_t, vec256_t>(stm + i),
+                                   vec_load<int16_t, vec256_t>(stm + HALF + i));
+        const auto them = vec_mullo16(vec_load<int16_t, vec256_t>(ntm + i),
+                                     vec_load<int16_t, vec256_t>(ntm + HALF + i));
+        vec_store<vec256_t, int16_t>(result + i, us);
+        vec_store<vec256_t, int16_t>(result + HALF + i, them);
+    }
+}
+
 inline void pairwise_mul_simd(
     int16_t* stm,
     int16_t* ntm,
@@ -179,6 +195,22 @@ inline int64_t dot_screlu_i16(const int16_t* values, const int16_t* weights, int
 }
 
 // -------------- weight transforms -------------
+
+// First dense layer only: values are in [0, QA^2], weights in [-128, 127].
+// The absolute sum bound also protects every partial sum and horizontal add.
+// Promote the result before adding the bias; later layers still require int64.
+inline int32_t dot_pairwise_i16_i8(const int16_t* a, const int8_t* w) {
+    static_assert(int64_t(L1_SIZE) * QA * QA * 128 <= INT32_MAX,
+                  "First dense layer sum must fit signed int32");
+    static_assert(L1_SIZE % 32 == 0, "Dot product requires whole SIMD vectors");
+    auto acc0 = zeros256;
+    auto acc1 = zeros256;
+    for (int i = 0; i < L1_SIZE; i += 32) {
+        acc0 = vec_madd_i16_i8(acc0, vec_load<int16_t, vec256_t>(a + i), w + i);
+        acc1 = vec_madd_i16_i8(acc1, vec_load<int16_t, vec256_t>(a + i + 16), w + i + 16);
+    }
+    return hsum_epi32(vec_add32(acc0, acc1));
+}
 
 // dot product of int64 activations x int8 weights, exact (no overflow/truncation)
 // a[] must be non-negative (true for screlu output) and size must be a multiple of 4
