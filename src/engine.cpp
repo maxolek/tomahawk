@@ -105,7 +105,7 @@ void Engine::setOption(const std::string& name, const std::string& value) {
         std::cout << "info string set aspiration_start_depth = " << searcher->params.ASPIRATION_START_DEPTH << std::endl;
     }
     else if (name == "aspiration_research_scale") {
-        searcher->params.ASPIRATION_RESEARCH_SCALE = std::stoi(value);
+        searcher->params.ASPIRATION_RESEARCH_SCALE = std::stof(value);
         std::cout << "info string set aspiration_research_scale = " << searcher->params.ASPIRATION_RESEARCH_SCALE << std::endl;
     }
     else if (name == "draw_eval") {
@@ -129,11 +129,11 @@ void Engine::setOption(const std::string& name, const std::string& value) {
         std::cout << "info string set lmr_depth_threshold = " << searcher->params.LMR_DEPTH_THRESHOLD << std::endl;
     }
     else if (name == "r_lmr_const") {
-        searcher->params.R_LMR_CONST = std::stof(value)/100.000;
+        searcher->params.R_LMR_CONST = std::stof(value)/100.0f;
         std::cout << "info string set r_lmr_const = " << static_cast<int>(100*searcher->params.R_LMR_CONST) << std::endl;
     }
     else if (name == "r_lmr_denom") {
-        searcher->params.R_LMR_DENOM = std::stof(value)/100.000;
+        searcher->params.R_LMR_DENOM = std::stof(value)/100.0f;
         std::cout << "info string set r_lmr_denom = " << static_cast<int>(100*searcher->params.R_LMR_DENOM) << std::endl;
     }
 
@@ -198,7 +198,6 @@ void Engine::setPosition(const std::string& fen,
     for (const auto& moveStr : moveStrs) {
 
         if (moveStr == "null" || moveStr == "NULL" || moveStr == "Null") {
-            Move m = Move::NullMove();
             game_board.MakeMove();
             ply++;
             continue;
@@ -270,34 +269,34 @@ void Engine::setPosition(const std::string& fen,
 // -- Search Control --
 // --------------------
 
-void Engine::computeSearchTime(const SearchSettings& settings) {
+void Engine::computeSearchTime(const SearchSettings& search_settings) {
     if (g_run_context.is_new_game) {
-        g_gamelog.wtime = settings.wtime; 
-        g_gamelog.btime = settings.btime; 
-        g_gamelog.winc = settings.winc; 
-        g_gamelog.binc = settings.binc; 
-        g_gamelog.movestogo = settings.movestogo;
-        g_gamelog.depth = settings.depth;
-        g_gamelog.nodes = settings.nodes;
-        g_gamelog.movetime = settings.movetime;
+        g_gamelog.wtime = search_settings.wtime;
+        g_gamelog.btime = search_settings.btime;
+        g_gamelog.winc = search_settings.winc;
+        g_gamelog.binc = search_settings.binc;
+        g_gamelog.movestogo = search_settings.movestogo;
+        g_gamelog.depth = search_settings.depth;
+        g_gamelog.nodes = search_settings.nodes;
+        g_gamelog.movetime = search_settings.movetime;
         g_run_context.is_new_game = false;
     }
 
-    int movesToGo = settings.movestogo > 0 ? settings.movestogo : 20;
+    int movesToGo = search_settings.movestogo > 0 ? search_settings.movestogo : 20;
 
     // hard coded time/depth
-    if (settings.movetime > 0 || settings.depth > 0) {
+    if (search_settings.movetime > 0 || search_settings.depth > 0) {
         limits = SearchLimits(
-            settings.movetime - engine_options.MOVE_OVERHEAD_MS,
-            settings.depth
+            search_settings.movetime - engine_options.MOVE_OVERHEAD_MS,
+            search_settings.depth
         );
         return;
     }
 
     // game clock
-    int side = game_board.is_white_move ? 0 : 1;
-    int myTime = (side == 0 ? settings.wtime : settings.btime);
-    int myInc  = (side == 0 ? settings.winc  : settings.binc);
+    int side_index = game_board.is_white_move ? 0 : 1;
+    int myTime = (side_index == 0 ? search_settings.wtime : search_settings.btime);
+    int myInc  = (side_index == 0 ? search_settings.winc  : search_settings.binc);
 
     // compute function
     double aggressiveness = 1.0;
@@ -376,10 +375,7 @@ void Engine::startSearch() {
                     std::chrono::steady_clock::now() - start_time).count();
     g_stats.principal_variation = result.best_line.line;
     #ifdef DEV
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now() - start_time).count();
         g_stats.game_ply = ply;
-        //g_stats.nps = elapsed > 0 ? (1000.0 * g_stats.nodes / elapsed) : 0.0;
         g_stats.eval = result.eval;
         g_stats.move = result.bestMove;
 
@@ -441,7 +437,7 @@ void Engine::newGame() {
     tracker.lastPositionHash = 0;
     tracker.active = true;
 
-    if (Logging::log_dir == Logging::DEFAULT_LOG_DIR) Logging::setLogDir(Logging::project_root / "logs/game_logs");
+    if (Logging::log_dir == Logging::DEFAULT_LOG_DIR) Logging::setLogDir(Logging::san_jacinto_logs / "game_logs");
     g_gamelog = GameLog{};
     g_gamelog.startFEN = game_board.getBoardFEN();
 
@@ -536,8 +532,8 @@ void Engine::apply_config_file(const fs::path& path) {
     if (auto* v = get("r_nmp"))                    searcher->params.R_NMP                    = std::stoi(*v);
     if (auto* v = get("r_lmr_const"))              searcher->params.R_LMR_CONST              = std::stof(*v);
     if (auto* v = get("r_lmr_denom"))              searcher->params.R_LMR_DENOM              = std::stof(*v);
-    if (auto* v = get("lmr_move_order_threshold")) searcher->params.LMR_MOVE_ORDER_THRESHOLD              = std::stof(*v);
-    if (auto* v = get("lmr_depth_threshold"))      searcher->params.LMR_DEPTH_THRESHOLD              = std::stof(*v);
+    if (auto* v = get("lmr_move_order_threshold")) searcher->params.LMR_MOVE_ORDER_THRESHOLD              = std::stoi(*v);
+    if (auto* v = get("lmr_depth_threshold"))      searcher->params.LMR_DEPTH_THRESHOLD              = std::stoi(*v);
 
     // EngineOptions
     if (auto* v = get("move_overhead_ms")) engine_options.MOVE_OVERHEAD_MS= std::stoi(*v);
@@ -565,14 +561,6 @@ void Engine::create_config_file(std::string config_name) {
     }
 
     auto b = [](bool v) -> std::string { return v ? "true" : "false"; };
-
-    // helper: write a relative path (strip PROJECT_ROOT prefix if present)
-    auto rel = [](const fs::path& p) -> std::string {
-        const fs::path root = fs::path(PROJECT_ROOT);
-        std::error_code ec;
-        fs::path r = fs::relative(p, root, ec);
-        return (!ec && !r.empty()) ? r.generic_string() : p.generic_string();
-    };
 
     f << "# =========================================================\n"
       << "# " << fs::path(config_name).stem().string() << " Engine Configuration\n"
@@ -743,7 +731,7 @@ void Engine::nnueSIMDTest() {
               << "\n";
 }
 
-void Engine::moveOrderingTest(int depth) {
+void Engine::moveOrderingTest(int /*depth*/) {
     std::cout << "=== Move Ordering Test ===\n";
 
     // Generate moves at root
@@ -777,4 +765,3 @@ void Engine::moveOrderingTest(int depth) {
         std::cout << move.uci() << ": " << score << "\n";
     }
 }
-

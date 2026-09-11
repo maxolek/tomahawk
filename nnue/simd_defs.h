@@ -72,99 +72,99 @@ static const vec256_t zeros256 = _mm256_setzero_si256();
 static const vec256_t ones32  = _mm256_set1_epi32(1);
 
 // set
-template <> vec256_t vec_set_16<vec256_t>(int16_t x) { return _mm256_set1_epi16(x); }
-template <> vec256_t vec_set_32<vec256_t>(int32_t x) { return _mm256_set1_epi32(x); }
-template <> vec256_t vec_set_64<vec256_t>(int64_t x) { return _mm256_set1_epi64x(x); }
-template <> void vec_set_zero(vec256_t &x) { x = zeros256; }
+template <> inline vec256_t vec_set_16<vec256_t>(int16_t x) { return _mm256_set1_epi16(x); }
+template <> inline vec256_t vec_set_32<vec256_t>(int32_t x) { return _mm256_set1_epi32(x); }
+template <> inline vec256_t vec_set_64<vec256_t>(int64_t x) { return _mm256_set1_epi64x(x); }
+template <> inline void vec_set_zero(vec256_t &x) { x = zeros256; }
 
 // load
-template <> vec128_t vec_load<int8_t, vec128_t>(const int8_t* x) { // different load function due to immediate registry widening in dot functions
+template <> inline vec128_t vec_load<int8_t, vec128_t>(const int8_t* x) { // different load function due to immediate registry widening in dot functions
     return _mm_loadl_epi64(reinterpret_cast<const vec128_t*>(x)); // load 8 bytes (64 bits) into low half of vec128_t
 }
-template <> vec256_t vec_load<int16_t, vec256_t>(const int16_t* x) { 
+template <> inline vec256_t vec_load<int16_t, vec256_t>(const int16_t* x) {
     return _mm256_load_si256(reinterpret_cast<const vec256_t*>(x)); 
 }
-template <> vec256_t vec_load<int32_t, vec256_t>(const int32_t* x) { 
+template <> inline vec256_t vec_load<int32_t, vec256_t>(const int32_t* x) {
     return _mm256_load_si256(reinterpret_cast<const vec256_t*>(x)); 
 }
-template <> vec256_t vec_load<int64_t, vec256_t>(const int64_t* x) { 
+template <> inline vec256_t vec_load<int64_t, vec256_t>(const int64_t* x) {
     return _mm256_load_si256(reinterpret_cast<const vec256_t*>(x)); 
 }
-template <> vec256_t vec_load<vec256_t, vec256_t>(const vec256_t* x) { 
+template <> inline vec256_t vec_load<vec256_t, vec256_t>(const vec256_t* x) {
     return _mm256_load_si256(x); 
 }
 
 // store
-template <> void vec_store<vec256_t, vec256_t>(vec256_t* to, vec256_t from) { 
+template <> inline void vec_store<vec256_t, vec256_t>(vec256_t* to, vec256_t from) {
     _mm256_store_si256(to, from); 
 }
-template <> void vec_store<vec256_t, int16_t>(int16_t* to, vec256_t from) { 
+template <> inline void vec_store<vec256_t, int16_t>(int16_t* to, vec256_t from) {
     _mm256_store_si256(reinterpret_cast<vec256_t*>(to), from); 
 }
-template <> void vec_store<vec256_t, int32_t>(int32_t* to, vec256_t from) { 
+template <> inline void vec_store<vec256_t, int32_t>(int32_t* to, vec256_t from) {
     _mm256_store_si256(reinterpret_cast<vec256_t*>(to), from); 
 }
-template <> void vec_store<vec256_t, int64_t>(int64_t* to, vec256_t from) { 
+template <> inline void vec_store<vec256_t, int64_t>(int64_t* to, vec256_t from) {
     _mm256_store_si256(reinterpret_cast<vec256_t*>(to), from); 
 }
 
 // unpack
-template <> vec128_t vec_unpacklo64<vec128_t>(vec128_t x, vec128_t y) { 
+template <> inline vec128_t vec_unpacklo64<vec128_t>(vec128_t x, vec128_t y) {
     return _mm_unpacklo_epi64(x, y); 
 }
-template <> vec256_t vec_unpacklo64<vec256_t>(vec256_t x, vec256_t y) { 
+template <> inline vec256_t vec_unpacklo64<vec256_t>(vec256_t x, vec256_t y) {
     return _mm256_unpacklo_epi64(x, y); 
 }
 
-template <> vec128_t vec_unpackhi64<vec128_t>(vec128_t x, vec128_t y) { 
+template <> inline vec128_t vec_unpackhi64<vec128_t>(vec128_t x, vec128_t y) {
     return _mm_unpackhi_epi64(x, y); 
 }
-template <> vec256_t vec_unpackhi64<vec256_t>(vec256_t x, vec256_t y) { 
+template <> inline vec256_t vec_unpackhi64<vec256_t>(vec256_t x, vec256_t y) {
     return _mm256_unpackhi_epi64(x, y); 
 }
 
 // shift
-template <> vec256_t vec_shift_left64<vec256_t>(vec256_t x, int shift) { 
+template <> inline vec256_t vec_shift_left64<vec256_t>(vec256_t x, int shift) {
     return _mm256_slli_epi64(x, shift); 
 }
-template <> vec256_t vec_shift_right64<vec256_t>(vec256_t x, int shift) { 
+template <> inline vec256_t vec_shift_right64<vec256_t>(vec256_t x, int shift) {
     return _mm256_srli_epi64(x, shift); 
 }
-template <> vec256_t vec_shift_right256<vec256_t>(vec256_t x, int shift) {
+template <> inline vec256_t vec_shift_right256<vec256_t>(vec256_t x, int shift) {
     return _mm256_srli_si256(x, shift);
 }
 
 // halves
-template <> vec256_t vec_lo_half<vec256_t>(vec256_t x) { 
+template <> inline vec256_t vec_lo_half<vec256_t>(vec256_t x) {
     const vec256_t mask_lo32 = vec_set_64<vec256_t>(0xFFFFFFFFLL);
     return _mm256_and_si256(x, mask_lo32); 
 }
-template <> vec256_t vec_hi_half<vec256_t>(vec256_t x) { 
+template <> inline vec256_t vec_hi_half<vec256_t>(vec256_t x) {
     return _mm256_srli_epi64(x, 32); 
 }
 
 // add
-template <> vec256_t vec_add16<vec256_t>(vec256_t x, vec256_t y) { 
+template <> inline vec256_t vec_add16<vec256_t>(vec256_t x, vec256_t y) {
     return _mm256_add_epi16(x, y); 
 }
-template <> vec128_t vec_add32<vec128_t>(vec128_t x, vec128_t y) { 
+template <> inline vec128_t vec_add32<vec128_t>(vec128_t x, vec128_t y) {
     return _mm_add_epi32(x, y); 
 }
-template <> vec256_t vec_add32<vec256_t>(vec256_t x, vec256_t y) { 
+template <> inline vec256_t vec_add32<vec256_t>(vec256_t x, vec256_t y) {
     return _mm256_add_epi32(x, y); 
 }
-template <> vec128_t vec_add64<vec128_t>(vec128_t x, vec128_t y) { 
+template <> inline vec128_t vec_add64<vec128_t>(vec128_t x, vec128_t y) {
     return _mm_add_epi64(x, y); 
 }
-template <> vec256_t vec_add64<vec256_t>(vec256_t x, vec256_t y) { 
+template <> inline vec256_t vec_add64<vec256_t>(vec256_t x, vec256_t y) {
     return _mm256_add_epi64(x, y); 
 }
 
 // sub
-template <> vec256_t vec_sub16<vec256_t>(vec256_t x, vec256_t y) { 
+template <> inline vec256_t vec_sub16<vec256_t>(vec256_t x, vec256_t y) {
     return _mm256_sub_epi16(x, y); 
 }
-template <> vec256_t vec_sub32<vec256_t>(vec256_t x, vec256_t y) { 
+template <> inline vec256_t vec_sub32<vec256_t>(vec256_t x, vec256_t y) {
     return _mm256_sub_epi32(x, y); 
 }
 
@@ -173,70 +173,70 @@ template <> vec256_t vec_sub32<vec256_t>(vec256_t x, vec256_t y) {
 //  (even-indexed 32-bit lanes 0,2,4,6) and produces genuine 64-bit products
 //  distinct from vec_mullo32 which truncates every lane back to 32 bits
 //  (computes 4 64-bit products, not 8 32-bit like mullo)
-template <> vec256_t vec_mul32<vec256_t>(vec256_t x, vec256_t y) {
+template <> inline vec256_t vec_mul32<vec256_t>(vec256_t x, vec256_t y) {
     return _mm256_mul_epi32(x, y);
 }
 
 // multiply
-template <> vec256_t vec_mullo16<vec256_t>(vec256_t x, vec256_t y) { 
+template <> inline vec256_t vec_mullo16<vec256_t>(vec256_t x, vec256_t y) {
     return _mm256_mullo_epi16(x, y); 
 }
-template <> vec256_t vec_mullo32<vec256_t>(vec256_t x, vec256_t y) { 
+template <> inline vec256_t vec_mullo32<vec256_t>(vec256_t x, vec256_t y) {
     return _mm256_mullo_epi32(x, y); 
 }
-template <> vec256_t vec_mulhi16<vec256_t>(vec256_t x, vec256_t y) { 
+template <> inline vec256_t vec_mulhi16<vec256_t>(vec256_t x, vec256_t y) {
     return _mm256_mulhi_epi16(x, y); 
 }
 
 // shuffle 
-template <> vec256_t vec_shuffle32<vec256_t>(vec256_t x, int imm) { 
+template <> inline vec256_t vec_shuffle32<vec256_t>(vec256_t x, int imm) {
     return _mm256_shuffle_epi32(x, imm); 
 }
-template <> vec128_t vec_shuffle32<vec128_t>(vec128_t x, int imm) { 
+template <> inline vec128_t vec_shuffle32<vec128_t>(vec128_t x, int imm) {
     return _mm_shuffle_epi32(x, imm); 
 }
 
 // permute
-template <> vec256_t vec_permute2x128<vec256_t>(vec256_t x, vec256_t y, int imm) { 
+template <> inline vec256_t vec_permute2x128<vec256_t>(vec256_t x, vec256_t y, int imm) {
     return _mm256_permute2x128_si256(x, y, imm); 
 } 
 
 // clamp
-template <> vec256_t vec_clamp16<vec256_t>(vec256_t x, vec256_t min, vec256_t max) {
+template <> inline vec256_t vec_clamp16<vec256_t>(vec256_t x, vec256_t min, vec256_t max) {
     return _mm256_min_epi16(_mm256_max_epi16(x, min), max);
 }
-template <> vec256_t vec_clamp32<vec256_t>(vec256_t x, vec256_t min, vec256_t max) {
+template <> inline vec256_t vec_clamp32<vec256_t>(vec256_t x, vec256_t min, vec256_t max) {
     return _mm256_min_epi32(_mm256_max_epi32(x, min), max);
 }
 
 // convert
-template <> vec256_t vec_convert_8_32<vec128_t, vec256_t>(vec128_t x) {
+template <> inline vec256_t vec_convert_8_32<vec128_t, vec256_t>(vec128_t x) {
     return _mm256_cvtepi8_epi32(x);
 }
-template <> vec256_t vec_convert_16_32<vec128_t, vec256_t>(vec128_t x) {
+template <> inline vec256_t vec_convert_16_32<vec128_t, vec256_t>(vec128_t x) {
     return _mm256_cvtepi16_epi32(x);
 }
-template <> vec256_t vec_convert_32_64<vec128_t, vec256_t>(vec128_t x) {
+template <> inline vec256_t vec_convert_32_64<vec128_t, vec256_t>(vec128_t x) {
     return _mm256_cvtepi32_epi64(x);
 }
 
-template <> int32_t vec_convert_si128_32<vec128_t, int32_t>(vec128_t x) {
+template <> inline int32_t vec_convert_si128_32<vec128_t, int32_t>(vec128_t x) {
     return _mm_cvtsi128_si32(x);
 }
-template <> int64_t vec_convert_si128_64<vec128_t, int64_t>(vec128_t x) {
+template <> inline int64_t vec_convert_si128_64<vec128_t, int64_t>(vec128_t x) {
     return _mm_cvtsi128_si64(x);
 }
 
-template <> vec128_t vec_cast_256_128<vec256_t, vec128_t>(vec256_t x) {
+template <> inline vec128_t vec_cast_256_128<vec256_t, vec128_t>(vec256_t x) {
     return _mm256_castsi256_si128(x);
 }
 
-template <> vec128_t vec_extract_256_128<vec256_t, vec128_t>(vec256_t x, int index) {
+template <> inline vec128_t vec_extract_256_128<vec256_t, vec128_t>(vec256_t x, int index) {
     return _mm256_extracti128_si256(x, index);
 }
 
 // utils 
-template <> vec256_t vec_and<vec256_t>(vec256_t x, vec256_t y) {
+template <> inline vec256_t vec_and<vec256_t>(vec256_t x, vec256_t y) {
     return _mm256_and_si256(x, y);
 }
 
@@ -279,101 +279,101 @@ namespace neon_detail {
 }
 
 // set
-template <> vec256_t vec_set_16<vec256_t>(int16_t x) {
+template <> inline vec256_t vec_set_16<vec256_t>(int16_t x) {
     int8x16_t v = vreinterpretq_s8_s16(vdupq_n_s16(x));
     return { v, v };
 }
-template <> vec256_t vec_set_32<vec256_t>(int32_t x) {
+template <> inline vec256_t vec_set_32<vec256_t>(int32_t x) {
     int8x16_t v = vreinterpretq_s8_s32(vdupq_n_s32(x));
     return { v, v };
 }
-template <> vec256_t vec_set_64<vec256_t>(int64_t x) {
+template <> inline vec256_t vec_set_64<vec256_t>(int64_t x) {
     int8x16_t v = vreinterpretq_s8_s64(vdupq_n_s64(x));
     return { v, v };
 }
-template <> void vec_set_zero(vec256_t &x) { x = zeros256; }
+template <> inline void vec_set_zero(vec256_t &x) { x = zeros256; }
  
 // load
-template <> vec128_t vec_load<int8_t, vec128_t>(const int8_t* x) {
+template <> inline vec128_t vec_load<int8_t, vec128_t>(const int8_t* x) {
     // load 8 bytes into the low half, zero-fill the high half -- matches
     // _mm_loadl_epi64 (see simd_defs.h note on why int8 differs from the rest)
     return vcombine_s8(vld1_s8(x), vdup_n_s8(0));
 }
-template <> vec256_t vec_load<int16_t, vec256_t>(const int16_t* x) {
+template <> inline vec256_t vec_load<int16_t, vec256_t>(const int16_t* x) {
     return {
         vreinterpretq_s8_s16(vld1q_s16(x)),
         vreinterpretq_s8_s16(vld1q_s16(x + 8))
     };
 }
-template <> vec256_t vec_load<int32_t, vec256_t>(const int32_t* x) {
+template <> inline vec256_t vec_load<int32_t, vec256_t>(const int32_t* x) {
     return {
         vreinterpretq_s8_s32(vld1q_s32(x)),
         vreinterpretq_s8_s32(vld1q_s32(x + 4))
     };
 }
-template <> vec256_t vec_load<int64_t, vec256_t>(const int64_t* x) {
+template <> inline vec256_t vec_load<int64_t, vec256_t>(const int64_t* x) {
     return {
         vreinterpretq_s8_s64(vld1q_s64(x)),
         vreinterpretq_s8_s64(vld1q_s64(x + 2))
     };
 }
-template <> vec256_t vec_load<vec256_t, vec256_t>(const vec256_t* x) {
+template <> inline vec256_t vec_load<vec256_t, vec256_t>(const vec256_t* x) {
     const int8_t* p = reinterpret_cast<const int8_t*>(x);
     return { vld1q_s8(p), vld1q_s8(p + 16) };
 }
  
 // store
-template <> void vec_store<vec256_t, vec256_t>(vec256_t* to, vec256_t from) {
+template <> inline void vec_store<vec256_t, vec256_t>(vec256_t* to, vec256_t from) {
     int8_t* p = reinterpret_cast<int8_t*>(to);
     vst1q_s8(p, from.lo);
     vst1q_s8(p + 16, from.hi);
 }
-template <> void vec_store<vec256_t, int16_t>(int16_t* to, vec256_t from) {
+template <> inline void vec_store<vec256_t, int16_t>(int16_t* to, vec256_t from) {
     vst1q_s16(to,     vreinterpretq_s16_s8(from.lo));
     vst1q_s16(to + 8, vreinterpretq_s16_s8(from.hi));
 }
-template <> void vec_store<vec256_t, int32_t>(int32_t* to, vec256_t from) {
+template <> inline void vec_store<vec256_t, int32_t>(int32_t* to, vec256_t from) {
     vst1q_s32(to,     vreinterpretq_s32_s8(from.lo));
     vst1q_s32(to + 4, vreinterpretq_s32_s8(from.hi));
 }
-template <> void vec_store<vec256_t, int64_t>(int64_t* to, vec256_t from) {
+template <> inline void vec_store<vec256_t, int64_t>(int64_t* to, vec256_t from) {
     vst1q_s64(to,     vreinterpretq_s64_s8(from.lo));
     vst1q_s64(to + 2, vreinterpretq_s64_s8(from.hi));
 }
  
 // unpack (x86 unpacklo/hi64 operate independently within each 128-bit half)
-template <> vec128_t vec_unpacklo64<vec128_t>(vec128_t x, vec128_t y) {
+template <> inline vec128_t vec_unpacklo64<vec128_t>(vec128_t x, vec128_t y) {
     int64x2_t xi = vreinterpretq_s64_s8(x), yi = vreinterpretq_s64_s8(y);
     return vreinterpretq_s8_s64(vcombine_s64(vget_low_s64(xi), vget_low_s64(yi)));
 }
-template <> vec128_t vec_unpackhi64<vec128_t>(vec128_t x, vec128_t y) {
+template <> inline vec128_t vec_unpackhi64<vec128_t>(vec128_t x, vec128_t y) {
     int64x2_t xi = vreinterpretq_s64_s8(x), yi = vreinterpretq_s64_s8(y);
     return vreinterpretq_s8_s64(vcombine_s64(vget_high_s64(xi), vget_high_s64(yi)));
 }
-template <> vec256_t vec_unpacklo64<vec256_t>(vec256_t x, vec256_t y) {
+template <> inline vec256_t vec_unpacklo64<vec256_t>(vec256_t x, vec256_t y) {
     return { vec_unpacklo64<vec128_t>(x.lo, y.lo), vec_unpacklo64<vec128_t>(x.hi, y.hi) };
 }
-template <> vec256_t vec_unpackhi64<vec256_t>(vec256_t x, vec256_t y) {
+template <> inline vec256_t vec_unpackhi64<vec256_t>(vec256_t x, vec256_t y) {
     return { vec_unpackhi64<vec128_t>(x.lo, y.lo), vec_unpackhi64<vec128_t>(x.hi, y.hi) };
 }
  
 // shift (NEON immediates must be compile-time constants; use the
 // variable-shift intrinsics since these wrappers take a runtime `shift`)
-template <> vec256_t vec_shift_left32<vec256_t>(vec256_t x, int shift) {
+template <> inline vec256_t vec_shift_left32<vec256_t>(vec256_t x, int shift) {
     int32x4_t s = vdupq_n_s32(shift);
     return {
         vreinterpretq_s8_s32(vshlq_s32(vreinterpretq_s32_s8(x.lo), s)),
         vreinterpretq_s8_s32(vshlq_s32(vreinterpretq_s32_s8(x.hi), s))
     };
 }
-template <> vec256_t vec_shift_left64<vec256_t>(vec256_t x, int shift) {
+template <> inline vec256_t vec_shift_left64<vec256_t>(vec256_t x, int shift) {
     int64x2_t s = vdupq_n_s64((int64_t)shift);
     return {
         vreinterpretq_s8_s64(vshlq_s64(vreinterpretq_s64_s8(x.lo), s)),
         vreinterpretq_s8_s64(vshlq_s64(vreinterpretq_s64_s8(x.hi), s))
     };
 }
-template <> vec256_t vec_shift_right32<vec256_t>(vec256_t x, int shift) {
+template <> inline vec256_t vec_shift_right32<vec256_t>(vec256_t x, int shift) {
     // logical (zero-fill) right shift == left shift by a negative amount on
     // the unsigned type, matching _mm256_srli_epi32
     int32x4_t s = vdupq_n_s32(-shift);
@@ -382,7 +382,7 @@ template <> vec256_t vec_shift_right32<vec256_t>(vec256_t x, int shift) {
         vreinterpretq_s8_u32(vshlq_u32(vreinterpretq_u32_s8(x.hi), s))
     };
 }
-template <> vec256_t vec_shift_right64<vec256_t>(vec256_t x, int shift) {
+template <> inline vec256_t vec_shift_right64<vec256_t>(vec256_t x, int shift) {
     int64x2_t s = vdupq_n_s64((int64_t)(-shift));
     return {
         vreinterpretq_s8_u64(vshlq_u64(vreinterpretq_u64_s8(x.lo), s)),
@@ -390,45 +390,45 @@ template <> vec256_t vec_shift_right64<vec256_t>(vec256_t x, int shift) {
     };
 }
  
-template <> vec256_t vec_lo_half<vec256_t>(vec256_t x) {
+template <> inline vec256_t vec_lo_half<vec256_t>(vec256_t x) {
     uint64x2_t mask = vdupq_n_u64(0xFFFFFFFFULL);
     return {
         vreinterpretq_s8_u64(vandq_u64(vreinterpretq_u64_s8(x.lo), mask)),
         vreinterpretq_s8_u64(vandq_u64(vreinterpretq_u64_s8(x.hi), mask))
     };
 }
-template <> vec256_t vec_hi_half<vec256_t>(vec256_t x) {
+template <> inline vec256_t vec_hi_half<vec256_t>(vec256_t x) {
     return vec_shift_right64<vec256_t>(x, 32);
 }
  
 // add
-template <> vec256_t vec_add16<vec256_t>(vec256_t x, vec256_t y) {
+template <> inline vec256_t vec_add16<vec256_t>(vec256_t x, vec256_t y) {
     return {
         vreinterpretq_s8_s16(vaddq_s16(vreinterpretq_s16_s8(x.lo), vreinterpretq_s16_s8(y.lo))),
         vreinterpretq_s8_s16(vaddq_s16(vreinterpretq_s16_s8(x.hi), vreinterpretq_s16_s8(y.hi)))
     };
 }
-template <> vec128_t vec_add32<vec128_t>(vec128_t x, vec128_t y) {
+template <> inline vec128_t vec_add32<vec128_t>(vec128_t x, vec128_t y) {
     return vreinterpretq_s8_s32(vaddq_s32(vreinterpretq_s32_s8(x), vreinterpretq_s32_s8(y)));
 }
-template <> vec256_t vec_add32<vec256_t>(vec256_t x, vec256_t y) {
+template <> inline vec256_t vec_add32<vec256_t>(vec256_t x, vec256_t y) {
     return { vec_add32<vec128_t>(x.lo, y.lo), vec_add32<vec128_t>(x.hi, y.hi) };
 }
-template <> vec128_t vec_add64<vec128_t>(vec128_t x, vec128_t y) {
+template <> inline vec128_t vec_add64<vec128_t>(vec128_t x, vec128_t y) {
     return vreinterpretq_s8_s64(vaddq_s64(vreinterpretq_s64_s8(x), vreinterpretq_s64_s8(y)));
 }
-template <> vec256_t vec_add64<vec256_t>(vec256_t x, vec256_t y) {
+template <> inline vec256_t vec_add64<vec256_t>(vec256_t x, vec256_t y) {
     return { vec_add64<vec128_t>(x.lo, y.lo), vec_add64<vec128_t>(x.hi, y.hi) };
 }
  
 // sub
-template <> vec256_t vec_sub16<vec256_t>(vec256_t x, vec256_t y) {
+template <> inline vec256_t vec_sub16<vec256_t>(vec256_t x, vec256_t y) {
     return {
         vreinterpretq_s8_s16(vsubq_s16(vreinterpretq_s16_s8(x.lo), vreinterpretq_s16_s8(y.lo))),
         vreinterpretq_s8_s16(vsubq_s16(vreinterpretq_s16_s8(x.hi), vreinterpretq_s16_s8(y.hi)))
     };
 }
-template <> vec256_t vec_sub32<vec256_t>(vec256_t x, vec256_t y) {
+template <> inline vec256_t vec_sub32<vec256_t>(vec256_t x, vec256_t y) {
     return {
         vreinterpretq_s8_s32(vsubq_s32(vreinterpretq_s32_s8(x.lo), vreinterpretq_s32_s8(y.lo))),
         vreinterpretq_s8_s32(vsubq_s32(vreinterpretq_s32_s8(x.hi), vreinterpretq_s32_s8(y.hi)))
@@ -436,19 +436,19 @@ template <> vec256_t vec_sub32<vec256_t>(vec256_t x, vec256_t y) {
 }
  
 // multiply
-template <> vec256_t vec_mullo16<vec256_t>(vec256_t x, vec256_t y) {
+template <> inline vec256_t vec_mullo16<vec256_t>(vec256_t x, vec256_t y) {
     return {
         vreinterpretq_s8_s16(vmulq_s16(vreinterpretq_s16_s8(x.lo), vreinterpretq_s16_s8(y.lo))),
         vreinterpretq_s8_s16(vmulq_s16(vreinterpretq_s16_s8(x.hi), vreinterpretq_s16_s8(y.hi)))
     };
 }
-template <> vec256_t vec_mullo32<vec256_t>(vec256_t x, vec256_t y) {
+template <> inline vec256_t vec_mullo32<vec256_t>(vec256_t x, vec256_t y) {
     return {
         vreinterpretq_s8_s32(vmulq_s32(vreinterpretq_s32_s8(x.lo), vreinterpretq_s32_s8(y.lo))),
         vreinterpretq_s8_s32(vmulq_s32(vreinterpretq_s32_s8(x.hi), vreinterpretq_s32_s8(y.hi)))
     };
 }
-template <> vec256_t vec_mulhi16<vec256_t>(vec256_t x, vec256_t y) {
+template <> inline vec256_t vec_mulhi16<vec256_t>(vec256_t x, vec256_t y) {
     auto half = [](int16x8_t a, int16x8_t b) -> int16x8_t {
         int32x4_t lo = vmull_s16(vget_low_s16(a),  vget_low_s16(b));
         int32x4_t hi = vmull_s16(vget_high_s16(a), vget_high_s16(b));
@@ -461,14 +461,14 @@ template <> vec256_t vec_mulhi16<vec256_t>(vec256_t x, vec256_t y) {
 }
  
 // clamp
-template <> vec256_t vec_clamp16<vec256_t>(vec256_t x, vec256_t min, vec256_t max) {
+template <> inline vec256_t vec_clamp16<vec256_t>(vec256_t x, vec256_t min, vec256_t max) {
     auto half = [](int8x16_t xv, int8x16_t mn, int8x16_t mx) -> int8x16_t {
         int16x8_t v = vminq_s16(vmaxq_s16(vreinterpretq_s16_s8(xv), vreinterpretq_s16_s8(mn)), vreinterpretq_s16_s8(mx));
         return vreinterpretq_s8_s16(v);
     };
     return { half(x.lo, min.lo, max.lo), half(x.hi, min.hi, max.hi) };
 }
-template <> vec256_t vec_clamp32<vec256_t>(vec256_t x, vec256_t min, vec256_t max) {
+template <> inline vec256_t vec_clamp32<vec256_t>(vec256_t x, vec256_t min, vec256_t max) {
     auto half = [](int8x16_t xv, int8x16_t mn, int8x16_t mx) -> int8x16_t {
         int32x4_t v = vminq_s32(vmaxq_s32(vreinterpretq_s32_s8(xv), vreinterpretq_s32_s8(mn)), vreinterpretq_s32_s8(mx));
         return vreinterpretq_s8_s32(v);
@@ -479,7 +479,7 @@ template <> vec256_t vec_clamp32<vec256_t>(vec256_t x, vec256_t min, vec256_t ma
 // shuffle (only ever called on vec128_t in this codebase, via hsum_epi32)
 // with two known literal immediates -- fast-path since `imm` is always
 // a compile-time constant at the call site and will fold away)
-template <> vec128_t vec_shuffle32<vec128_t>(vec128_t x, int imm) {
+template <> inline vec128_t vec_shuffle32<vec128_t>(vec128_t x, int imm) {
     // [src2,src3,src0,src1] == swap the two 64-bit halves
     if (imm == _MM_SHUFFLE(1, 0, 3, 2)) { 
         int64x2_t v = vreinterpretq_s64_s8(x);
@@ -495,7 +495,7 @@ template <> vec128_t vec_shuffle32<vec128_t>(vec128_t x, int imm) {
  
 // permute (only ever called with imm 0x20 / 0x31 in this codebase, via activate_screlu64
 // both 0x20 and 0x31 are pure field selection, no computation
-template <> vec256_t vec_permute2x128<vec256_t>(vec256_t x, vec256_t y, int imm) {
+template <> inline vec256_t vec_permute2x128<vec256_t>(vec256_t x, vec256_t y, int imm) {
     if (imm == 0x20) return { x.lo, y.lo };
     if (imm == 0x31) return { x.hi, y.hi };
     
@@ -513,7 +513,7 @@ template <> vec256_t vec_permute2x128<vec256_t>(vec256_t x, vec256_t y, int imm)
 }
  
 // convert
-template <> vec256_t vec_convert_8_32<vec128_t, vec256_t>(vec128_t x) {
+template <> inline vec256_t vec_convert_8_32<vec128_t, vec256_t>(vec128_t x) {
     // only the low 8 bytes are meaningful input (see vec_load<int8_t,...> note)
     int8x8_t low8 = vget_low_s8(x);
     int16x8_t w16 = vmovl_s8(low8);
@@ -522,34 +522,34 @@ template <> vec256_t vec_convert_8_32<vec128_t, vec256_t>(vec128_t x) {
         vreinterpretq_s8_s32(vmovl_s16(vget_high_s16(w16)))
     };
 }
-template <> vec256_t vec_convert_16_32<vec128_t, vec256_t>(vec128_t x) {
+template <> inline vec256_t vec_convert_16_32<vec128_t, vec256_t>(vec128_t x) {
     int16x8_t v = vreinterpretq_s16_s8(x);
     return {
         vreinterpretq_s8_s32(vmovl_s16(vget_low_s16(v))),
         vreinterpretq_s8_s32(vmovl_s16(vget_high_s16(v)))
     };
 }
-template <> vec256_t vec_convert_32_64<vec128_t, vec256_t>(vec128_t x) {
+template <> inline vec256_t vec_convert_32_64<vec128_t, vec256_t>(vec128_t x) {
     int32x4_t v = vreinterpretq_s32_s8(x);
     return {
         vreinterpretq_s8_s64(vmovl_s32(vget_low_s32(v))),
         vreinterpretq_s8_s64(vmovl_s32(vget_high_s32(v)))
     };
 }
-template <> int32_t vec_convert_si128_32<vec128_t, int32_t>(vec128_t x) {
+template <> inline int32_t vec_convert_si128_32<vec128_t, int32_t>(vec128_t x) {
     return vgetq_lane_s32(vreinterpretq_s32_s8(x), 0);
 }
-template <> int64_t vec_convert_si128_64<vec128_t, int64_t>(vec128_t x) {
+template <> inline int64_t vec_convert_si128_64<vec128_t, int64_t>(vec128_t x) {
     return vgetq_lane_s64(vreinterpretq_s64_s8(x), 0);
 }
  
-template <> vec128_t vec_cast_256_128<vec256_t, vec128_t>(vec256_t x) { return x.lo; }
-template <> vec128_t vec_extract_256_128<vec256_t, vec128_t>(vec256_t x, int index) {
+template <> inline vec128_t vec_cast_256_128<vec256_t, vec128_t>(vec256_t x) { return x.lo; }
+template <> inline vec128_t vec_extract_256_128<vec256_t, vec128_t>(vec256_t x, int index) {
     return index == 0 ? x.lo : x.hi;
 }
  
 // and
-template <> vec256_t vec_and<vec256_t>(vec256_t x, vec256_t y) {
+template <> inline vec256_t vec_and<vec256_t>(vec256_t x, vec256_t y) {
     return { vandq_s8(x.lo, y.lo), vandq_s8(x.hi, y.hi) };
 }
 

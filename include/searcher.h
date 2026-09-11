@@ -83,9 +83,9 @@ public:
     MoveScores move_scores;
 
     // iteration-local eval table
-    int node_count_table[1 << 16];   // keyed by Move.Value()
+    uint64_t node_count_table[1 << 16];   // keyed by Move.Value()
     void store_last_node_counts(const SearchResult& res); // fill node_count_table
-    int get_node_count(Move m) const; // retrieve from table
+    uint64_t get_node_count(Move m) const; // retrieve from table
 
     bool stop = false;
 
@@ -98,8 +98,8 @@ public:
     // ------------------------------- FUNCS -------------------------------
 
     Searcher(Board& b, MoveGenerator& mg, NNUE& nn, TranspositionTable& _tt) 
-        : board(b), 
-          movegen(mg),
+        : movegen(mg),
+          board(b),
           nnue(nn),
           tt(_tt) {}
 

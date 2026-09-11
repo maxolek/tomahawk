@@ -78,7 +78,7 @@ public:
     }
 
     // Store an entry
-    inline void store(U64 key, int depth, int ply, int score,
+    inline void store(U64 key, int depth, [[maybe_unused]] int ply, int score,
                       BoundType flag, Move bestMove) {
         #ifdef DEV
             ScopedTimer timer(T_TT_STORE);
@@ -123,7 +123,7 @@ public:
     }
 
     double fillRatio() const {
-        return static_cast<double>(filledCount) / entriesCount;
+        return static_cast<double>(filledCount) / static_cast<double>(entriesCount);
     }
 
     size_t entriesCount = 0;

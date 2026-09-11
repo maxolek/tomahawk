@@ -16,7 +16,7 @@ void Searcher::updatePV(std::vector<Move>& pv, const Move& move, const std::vect
 }
 
 // leaf node pruning
-bool Searcher::shouldPrune(Move& move, int standPat, int alpha, int search_depth, int ply) {
+bool Searcher::shouldPrune(Move& move, int standPat, int alpha, [[maybe_unused]] int search_depth, [[maybe_unused]] int ply) {
     const int captured = board.getCapturedPiece(move.TargetSquare());
     const bool is_promo = move.IsPromotion();
     const bool in_check = board.is_in_check;
@@ -51,7 +51,7 @@ bool Searcher::shouldPrune(Move& move, int standPat, int alpha, int search_depth
 // Static Exchange Evaluation (SEE) 
 // ============================================================================
 
-int Searcher::SEE(const Board& board, const Move& move) {
+int Searcher::SEE(const Board& boardRef, const Move& move) {
     #ifdef DEV
         ScopedTimer timer(T_SEE);
     #endif
@@ -59,8 +59,8 @@ int Searcher::SEE(const Board& board, const Move& move) {
     int sq = move.TargetSquare();
     int from = move.StartSquare();
 
-    int moverPt12 = board.sqToPiece[from];
-    int capturedPt12 = board.sqToPiece[sq];
+    int moverPt12 = boardRef.sqToPiece[from];
+    int capturedPt12 = boardRef.sqToPiece[sq];
 
     if (moverPt12 == -1 || capturedPt12 == -1) return 0; // sanity: only captures
 
@@ -87,17 +87,17 @@ int Searcher::SEE(const Board& board, const Move& move) {
     // Compute attackers for a side
     auto computeAttackers = [&](int side) -> U64 {
         U64 attackers = 0ULL;
-        U64 occ = board.colorBitboards[0] | board.colorBitboards[1];
-        U64 color_bb = board.colorBitboards[side];
+        U64 occ = boardRef.colorBitboards[0] | boardRef.colorBitboards[1];
+        U64 color_bb = boardRef.colorBitboards[side];
 
         for (int pt = 0; pt < 6; ++pt) {
-            U64 bb = board.pieceBitboards[pt] & color_bb & ~used;
+            U64 bb = boardRef.pieceBitboards[pt] & color_bb & ~used;
             while (bb) {
                 int sqFrom = getLSB(bb);
                 bb &= bb - 1;
 
                 if (sqFrom < 0 || sqFrom >= 64) continue; 
-                int pt12 = board.sqToPiece[sqFrom];
+                int pt12 = boardRef.sqToPiece[sqFrom];
                 if (pt12 == -1) continue;
 
                 switch (pt) {
@@ -145,7 +145,7 @@ int Searcher::SEE(const Board& board, const Move& move) {
             cand &= cand - 1;
             if (sqFrom < 0 || sqFrom >= 64) continue;
 
-            int pt12 = board.sqToPiece[sqFrom];
+            int pt12 = boardRef.sqToPiece[sqFrom];
             if (pt12 == -1) continue;
 
             int v = valOf(pieceType(pt12));
@@ -161,13 +161,13 @@ int Searcher::SEE(const Board& board, const Move& move) {
         int fromAtt = -1;
         if (!pickLVA(stm, fromAtt)) break;
 
-        int attackerPt12 = board.sqToPiece[fromAtt];
+        int attackerPt12 = boardRef.sqToPiece[fromAtt];
         if (attackerPt12 == -1) break;
 
-        //int attackerVal = valOf(pieceType(attackerPt12));
         int victimVal   = valOf(pieceType(targetPt12));
 
-        gain[d++] = victimVal - gain[d-1]; // recapture
+        gain[d] = victimVal - gain[d-1]; // recapture
+        ++d;
 
         used |= 1ULL << fromAtt;
         targetPt12 = attackerPt12;
@@ -186,12 +186,12 @@ int Searcher::SEE(const Board& board, const Move& move) {
 }
 
 
-U64 Searcher::attackersTo(const Board& board, int sq, bool white, U64 occ) {
+U64 Searcher::attackersTo(const Board& boardRef, int sq, bool white, U64 occ) {
     U64 attackers = 0ULL;
-    U64 color = white ? board.colorBitboards[0] : board.colorBitboards[1];
+    U64 color = white ? boardRef.colorBitboards[0] : boardRef.colorBitboards[1];
 
     // Pawns
-    U64 pawns = board.pieceBitboards[pawn] & color;
+    U64 pawns = boardRef.pieceBitboards[pawn] & color;
     if (white) {
         // Which white pawns can capture on sq? Check squares one rank below
         // Use precomputed pawn attacks from white pawns
@@ -201,14 +201,14 @@ U64 Searcher::attackersTo(const Board& board, int sq, bool white, U64 occ) {
     }
 
     // Knights
-    attackers |= (color & board.pieceBitboards[knight]) & PrecomputedMoveData::blankKnightAttacks[sq];
+    attackers |= (color & boardRef.pieceBitboards[knight]) & PrecomputedMoveData::blankKnightAttacks[sq];
 
     // Kings
-    attackers |= (color & board.pieceBitboards[king]) & PrecomputedMoveData::blankKingAttacks[sq];
+    attackers |= (color & boardRef.pieceBitboards[king]) & PrecomputedMoveData::blankKingAttacks[sq];
 
     // Sliders
-    U64 bishop_sliders = (color & board.pieceBitboards[bishop]) | (color & board.pieceBitboards[queen]);
-    U64 rook_sliders   = (color & board.pieceBitboards[rook])   | (color & board.pieceBitboards[queen]);
+    U64 bishop_sliders = (color & boardRef.pieceBitboards[bishop]) | (color & boardRef.pieceBitboards[queen]);
+    U64 rook_sliders   = (color & boardRef.pieceBitboards[rook])   | (color & boardRef.pieceBitboards[queen]);
 
     attackers |= bishop_sliders & Magics::bishopAttacks(sq, occ);
     attackers |= rook_sliders   & Magics::rookAttacks(sq, occ);
@@ -230,7 +230,7 @@ void Searcher::store_last_node_counts(const SearchResult& res) {
     }
 }
 
-inline int Searcher::get_node_count(Move m) const {
+inline uint64_t Searcher::get_node_count(Move m) const {
     return node_count_table[m.Value()];
 }
 
@@ -240,7 +240,7 @@ inline int Searcher::get_node_count(Move m) const {
 // ============================================================================
 
 int Searcher::rootMoveScore(const Move& move, const Move& ttMove, const Move& pvMove) {
-    int score = 0;
+    int64_t score = 0;
 
     if (Move::SameMove(move, pvMove))
         score += root_scores.PV_BASE;
@@ -248,7 +248,8 @@ int Searcher::rootMoveScore(const Move& move, const Move& ttMove, const Move& pv
     if (Move::SameMove(move, ttMove))
         score += root_scores.TT_BASE;
 
-    score += get_node_count(move);
+    // Keep the ordering score representable even after very large searches.
+    score += static_cast<int>(std::min<uint64_t>(get_node_count(move), INT_MAX));
 
     if (move.IsPromotion())
         score += root_scores.PROMO_BASE;
@@ -259,7 +260,7 @@ int Searcher::rootMoveScore(const Move& move, const Move& ttMove, const Move& pv
     else 
         score += root_scores.BAD_CAP_BASE;
 
-    return score;
+    return static_cast<int>(std::min<int64_t>(score, INT_MAX));
 }
 
 int Searcher::moveScore(const Move& move, const Board& boardRef,
@@ -319,8 +320,6 @@ void Searcher::orderedMoves(Move moves[MAX_MOVES], size_t count,
     #ifdef DEV
         ScopedTimer timer(T_SCORE_ORDER);
     #endif
-    U64 hash = boardRef.zobrist_hash;
-
     // sorting
     std::pair<int, Move> scored[MAX_MOVES];
     for (size_t i = 0; i < count; ++i)
@@ -612,8 +611,6 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
 
     // current board state info
     bool in_check = board.is_in_check;
-    bool is_pawn_endgame = board.pawn_endgame;
-    bool was_capture = board.currentGameState.capturedPieceType != -1;
 
     /*
     FUTILITY PRUNING  
@@ -787,7 +784,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
     int ply = 0; // root moves are depth=0, ply+1 in arg call makes made moves depth=1
     SearchResult result;
     int _lmr_R = 0;
-    int nodes_before = 0;
+    uint64_t nodes_before = 0;
     bool exact = false;
     bool is_king_move = false;
     bool build_accums = false;
@@ -795,8 +792,6 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
 
     // current board state info
     bool in_check = board.is_in_check;
-    bool is_pawn_endgame = board.pawn_endgame;
-    bool was_capture = board.currentGameState.capturedPieceType != -1;
     bool is_capture;
 
     // --- aspiration search ---
@@ -933,7 +928,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                 #endif
                 alpha = aspAlpha - delta;
                 beta = aspBeta;
-                delta *= params.ASPIRATION_RESEARCH_SCALE;
+                delta = static_cast<int>(static_cast<float>(delta) * params.ASPIRATION_RESEARCH_SCALE);
                 continue;
             } else if (iter_result.eval >= aspBeta) {
                 #ifdef DEV
@@ -941,7 +936,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                 #endif
                 beta = aspBeta + delta;
                 alpha = aspAlpha;
-                delta *= params.ASPIRATION_RESEARCH_SCALE;
+                delta = static_cast<int>(static_cast<float>(delta) * params.ASPIRATION_RESEARCH_SCALE);
                 continue;
             }
         } 
@@ -961,7 +956,6 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
     std::fill(std::begin(node_count_table), std::end(node_count_table), 0);
 
     int depth = 1;
-    Move prevBest = Move::NullMove();
 
     // Build NNUE accumulators for root position
     //nnue.build_accumulators(board);
@@ -969,7 +963,9 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
 
     // --- iterative deepening loop ---
     while (!limits.should_stop(depth)) {
-        auto depth_start = std::chrono::steady_clock::now();
+        #ifdef DEV
+            auto depth_start = std::chrono::steady_clock::now();
+        #endif
         g_stats.max_depth = depth;
 
         // --- move ordering ---
@@ -1032,8 +1028,7 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
             //g_stats.max_completed_depth = depth;
             g_stats.it_depth_eval[depth] = result.eval; // stm perspective (+.5 white = -.5 black and vice versa)
             g_stats.it_depth_move[depth] = result.bestMove;
-            g_stats.it_depth_time_ms[depth] = std::chrono::duration<double, std::milli>(depth_end - depth_start).count();
-            //if (Move::SameMove(bestMove, prevBest)) g_stats.bestmoveStable++;
+            g_stats.it_depth_time_ms[depth] = std::chrono::duration_cast<std::chrono::milliseconds>(depth_end - depth_start).count();
 
             // log per-root-move timing data
             logRootMoves(result, depth);
@@ -1097,59 +1092,27 @@ bool Searcher::update_kings(const bool& is_king_move, const Move& move) {
     return stm_changed || ntm_changed;
 }
 
-void Searcher::perform_move(Board& board, const Move& move, const bool update_kings) {
-    /*
-    if (is_halfka) {
-        std::cerr
-            << "[MAKE] "
-            << move.uci()
-            << " king_move=" << is_king_move
-            << " moved_piece="
-            << board.getMovedPiece(move.StartSquare())
-            << " target="
-            << move.TargetSquare()
-            << "\n";
-            
-            nnue.debug_check_incr_vs_full_after_make(board, move, is_king_move);
-    }
-    */
-
+void Searcher::perform_move(Board& boardRef, const Move& move, const bool update_kings) {
     // non-king move : incremental update (pre-board move)
     // king move     : full rebuild (post-board move)
     if (!update_kings) {
-        nnue.on_make_move_halfka(board, move);
-        board.MakeMove(move);
+        nnue.on_make_move_halfka(boardRef, move);
+        boardRef.MakeMove(move);
     }
     else {
-        board.MakeMove(move);
-        nnue.build_halfka_accumulators(board);
+        boardRef.MakeMove(move);
+        nnue.build_halfka_accumulators(boardRef);
     }
 }
-void Searcher::perform_unmove(Board& board, const Move& move, const bool update_kings) {
-    /*
-    if (is_halfka) {
-        std::cerr
-            << "[UNMAKE] "
-            << move.uci()
-            << " king_move=" << is_king_move
-            << " moved_piece="
-            << board.getMovedPiece(move.TargetSquare())
-            << " target="
-            << move.TargetSquare()
-            << "\n";
-            
-            nnue.debug_check_incr_vs_full_after_unmake(board, move, is_king_move);
-    }
-    */
-
+void Searcher::perform_unmove(Board& boardRef, const Move& move, const bool update_kings) {
     // non-king move : incremental update (pre-board move)
     // king move     : full rebuild (post-board move)
     if (!update_kings) {
-        nnue.on_unmake_move_halfka(board, move);
-        board.UnmakeMove(move);
+        nnue.on_unmake_move_halfka(boardRef, move);
+        boardRef.UnmakeMove(move);
     }
     else {
-        board.UnmakeMove(move);
-        nnue.build_halfka_accumulators(board);
+        boardRef.UnmakeMove(move);
+        nnue.build_halfka_accumulators(boardRef);
     }
 }

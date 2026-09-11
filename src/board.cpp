@@ -427,10 +427,10 @@ bool Board::isThreefold() {
     int count = 0;
 
     // Number of positions to look back: since last irreversible move
-    int lookback = std::min<int>(currentGameState.fiftyMoveCounter + 1, zobrist_history.size());
+    size_t lookback = std::min(static_cast<size_t>(currentGameState.fiftyMoveCounter) + 1, zobrist_history.size());
 
     // Iterate backwards over just those positions
-    for (int i = static_cast<int>(zobrist_history.size()) - lookback; i < static_cast<int>(zobrist_history.size()); ++i) {
+    for (size_t i = zobrist_history.size() - lookback; i < zobrist_history.size(); ++i) {
         if (zobrist_history[i] == zobrist_hash)
             count++;
         if (count >= 3)

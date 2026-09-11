@@ -318,13 +318,9 @@ void MoveGenerator::generatePawnPushes(bool ours) {
     bool on_starting_rank;
     int one_step, two_step;
 
-    bool print_output = false;
-
     while (valid_pawns) {
         start_square = getLSB(valid_pawns);
         valid_pawns &= valid_pawns - 1;
-
-        print_output = false;
 
         // Start with the pawn's forward move mask
         // do not update attacks as pawn pushes cannot be direct attacks
@@ -481,7 +477,7 @@ bool MoveGenerator::isCheck(const Move move) {
     U64 new_occ = ((own | opp) & ~(1ULL << start_square)) | (1ULL << target_square);
     U64 new_own = ((own) & ~(1ULL << start_square)) | (1ULL << target_square);
     U64 discovery_ray = PrecomputedMoveData::rayMasks[start_square][sqidx(opp_king)]; // includes king
-    bool is_direct_check;
+    bool is_direct_check = false;
 
     // get moved piece (could be replaced with board pointer functions)
     if (pawns & (1ULL << start_square)) piece = pawn;

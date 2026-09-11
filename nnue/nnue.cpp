@@ -34,11 +34,6 @@ static void decode_bullet_affine(const uint8_t* p, T* out) {
             out[o * NUM_IN + i] = flat[(size_t)i * NUM_OUT + o];
 }
 
-static void decode_mirrored_bucket(int bucket, int& rank, int& file) {
-    rank = bucket / 4;
-    file = bucket % 4;
-}
-
 // ============================================================
 // Load quantised.bin
 // ============================================================
@@ -170,23 +165,6 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
     // pre-set output bucket
     const int bucket = output_bucket(occ);
 
-    /* SMALL NET
-
-    int64_t out64 = 0;
-    // activate, then multiple by weight and add to output (node)
-    for (int i = 0; i < HIDDEN_SIZE; ++i)
-        out64 += (int64_t)screlu(us->vals[i]) * (int32_t)weights[i];
-    for (int i = 0; i < HIDDEN_SIZE; ++i)
-        out64 += (int64_t)screlu(them->vals[i]) * (int32_t)weights[HIDDEN_SIZE + i];
-
-    out64 /= (int64_t)QA;
-    out64 += (int64_t)bias;
-    out64 *= SCALE;
-    out64 /= (int64_t)(QA * QB);
-
-    return out64;
-    */
-
     // ===== L1: accumulator -. hidden 1 =====
 
     // output vector loop
@@ -252,7 +230,7 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
     out64 *= SCALE;
     out64 /= (int64_t)(QA * QB * QC * QC);
 
-    return out64;
+    return static_cast<int>(out64);
 }
 
 #ifdef _WIN32
@@ -305,7 +283,7 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
 
         sum /= QA; // (QA*QA)*QB -. QA*QB
         sum += bias;
-        l2_in[o] = sum;
+        l2_in[o] = static_cast<int32_t>(sum);
     }
 
     // ===== L2: hidden 1 -. hidden 2 =====
@@ -885,17 +863,6 @@ void NNUE::debug_acc_full(const Accumulator& acc, const std::string& name) const
     std::cout << "]\n";
 }
 
-int NNUE::evaluate_debug(bool is_white_move) const {
-    debug_acc_full(acc_stm, "STM before screlu");
-    debug_acc_full(acc_ntm, "NTM before screlu");
-
-    debug_evaluate(acc_stm, acc_ntm);
-
-    //return NNUE::evaluate(is_white_move);
-    return 0;
-}
-
-
 // Utility: Compare two accumulators and print differing feature indices and values
 
 static void decode_halfka_feature(int f, bool ntm) {
@@ -904,8 +871,6 @@ static void decode_halfka_feature(int f, bool ntm) {
 
     int rank = bucket / 4;
     int file = bucket % 4;
-
-    int flip = 0;
 
     // We don't know the original king file from the bucket alone.
     // The canonical bucket represents files a-d, with e-h folded
@@ -1270,8 +1235,8 @@ bool NNUE::check_active_features_consistency(const Accumulator& incr,
         auto print_decoded = [&](const std::vector<int>& vec) {
             for (int f : vec) {
                 auto [piece, sq, color] = decode_feature(f);
-                char file = 'a' + (sq % 8);
-                char rank = '1' + (sq / 8);
+                char file = static_cast<char>('a' + (sq % 8));
+                char rank = static_cast<char>('1' + (sq / 8));
                 std::cerr << "  idx=" << f
                           << " piece=" << piece
                           << " color=" << (color ? "black" : "white")
