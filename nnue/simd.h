@@ -294,7 +294,6 @@ inline void activate_screlu32(const int32_t* in, int32_t* out, int size, int32_t
     // handled the same (int16 is different)
     const vec256_t zero = zeros256;
     const vec256_t qa   = vec_set_32<vec256_t>(clamp_bound);
-    const vec256_t qa   = vec_set_32<vec256_t>(clamp_bound);
 
     for (int i = 0; i < size; i += 8) {
         vec256_t v = vec_load<int32_t, vec256_t>(in + i);
