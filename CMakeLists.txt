@@ -76,6 +76,11 @@ endif()
 # -------------------
 # Build type logic
 # -------------------
+set(TOMAHAWK_LTO_FLAG -flto)
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set(TOMAHAWK_LTO_FLAG -flto=auto)
+endif()
+
 # Default to Release
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
@@ -86,33 +91,10 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(tomahawk PRIVATE
         -O1
         -g
-        -mbmi2
-        -mavx2
+        -march=native
+        #-mbmi2
+        #-mavx2
         -fno-optimize-sibling-calls
-    )
-    target_compile_definitions(tomahawk PRIVATE DEBUG)
-
-# PROFILE
-elseif (CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-    target_compile_options(tomahawk PRIVATE
-        -O1
-        -g
-        -mbmi2
-        -mavx2  
-    )
-
-# ASAN
-elseif (CMAKE_BUILD_TYPE STREQUAL "Asan")
-    target_compile_options(tomahawk PRIVATE 
-        -O1
-        -g
-        -mbmi2
-        -mavx2
-        -fsanitize=address,undefined
-        -fno-omit-frame-pointer
-    )
-    target_link_options(tomahawk PRIVATE
-        -fsanitize=address,undefined
     )
     target_compile_definitions(tomahawk PRIVATE DEBUG)
 
@@ -122,7 +104,9 @@ elseif (CMAKE_BUILD_TYPE STREQUAL "Profile")
         -O3
         -ffast-math
         -march=native
-        -flto
+        #-mbmi2
+        #-mavx2
+        ${TOMAHAWK_LTO_FLAG}
         -g
         -fno-omit-frame-pointer
     )
@@ -134,7 +118,9 @@ elseif (CMAKE_BUILD_TYPE STREQUAL "DEV")
         -O3
         -ffast-math
         -march=native
-        -flto
+        #-mbmi2
+        #-mavx2
+        ${TOMAHAWK_LTO_FLAG}
     )
     target_compile_definitions(tomahawk PRIVATE DEV)
 
@@ -144,7 +130,9 @@ else()
         -O3
         -ffast-math
         -march=native
-        -flto
+        #-mbmi2
+        #-mavx2
+        ${TOMAHAWK_LTO_FLAG}
     )
 endif()
 
