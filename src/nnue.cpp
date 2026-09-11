@@ -165,6 +165,7 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
     // pre-set output bucket
     const int bucket = output_bucket(occ);
 
+
     // ===== L1: accumulator -. hidden 1 =====
 
     // output vector loop
@@ -175,8 +176,8 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
 
         // activate + pairwise multiply (+ concat)
         for (int i = 0; i < L1_SIZE; i++) {
-            stm_activated[i] = crelu(us->vals[i], QA);
-            ntm_activated[i] = crelu(them->vals[i], QA);
+            stm_activated[i] = crelu<int32_t>(us->vals[i], QA);
+            ntm_activated[i] = crelu<int32_t>(them->vals[i], QA);
         }
         pairwise_mul(stm_activated, ntm_activated, l1_pair_mul);
         
@@ -233,8 +234,7 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
     return static_cast<int>(out64);
 }
 
-#ifdef _WIN32
-// AVX2 -- 32 int8
+// AVX2 / NEON -- 32 int8
 //      -- 16 int16
 //      -- 8  int32
 //      -- 4  int64
@@ -318,7 +318,6 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
 
     return (int)out;
 }
-#endif
 
 int NNUE::full_eval(const Board& b) {
     build_halfka_accumulators(b); // build_accumulators(b);
@@ -328,117 +327,32 @@ int NNUE::full_eval(const Board& b) {
     );
 }
 
-/*
-// ---------- small net -----------------
-
-int NNUE::eval_smallnet(bool is_white_move, U64 occ) {
-    #ifdef DEV
-        ScopedTimer timer(T_NNUE);
-    #endif
-
-    const __m256i vec_zero = _mm256_setzero_si256();
-    const __m256i vec_qa   = _mm256_set1_epi32(QA);
-
-    const int32_t* us = is_white_move ? acc_stm.vals : acc_ntm.vals;
-    const int32_t* them = is_white_move ? acc_ntm.vals : acc_stm.vals;
-
+// Direct output head over both accumulator perspectives. Division order
+// matches the quantized SCReLU training formula (including negative truncation).
+int NNUE::eval_screlu(bool is_white_move, U64 occ,
+                      const int16_t (&weights)[NUM_OUTPUT_BUCKETS][2 * L1_SIZE],
+                      const int32_t (&biases)[NUM_OUTPUT_BUCKETS], int16_t qa, int qb) {
+    const auto* us = is_white_move ? acc_stm.vals : acc_ntm.vals;
+    const auto* them = is_white_move ? acc_ntm.vals : acc_stm.vals;
     const int bucket = output_bucket(occ);
-    const int16_t* weights = l1w[bucket];
-    const int32_t bias = l1b[bucket];
-
-    __m256i sum = _mm256_setzero_si256();
-
-    // 8 neurons batched at once (~8x faster than scalar)
-    for (int i = 0; i < HIDDEN_SIZE; i += 8) {
-        // Load 8 accumulator values (int32)
-        __m256i us_acc = _mm256_loadu_si256(
-            reinterpret_cast<const __m256i*>(us + i)
-        );
-        __m256i them_acc = _mm256_loadu_si256(
-            reinterpret_cast<const __m256i*>(them + i)
-        );
-
-        // ScreLU = clamp(x, 0, QA)^2
-        us_acc = _mm256_min_epi32(
-            _mm256_max_epi32(us_acc, vec_zero),
-            vec_qa
-        );
-        them_acc = _mm256_min_epi32(
-            _mm256_max_epi32(them_acc, vec_zero),
-            vec_qa
-        );
-
-        __m256i us_sq = _mm256_mullo_epi32(us_acc, us_acc);
-        __m256i them_sq = _mm256_mullo_epi32(them_acc, them_acc);
-
-        // Load weights (int16 extended to int32)
-        __m128i us_w16 = _mm_loadu_si128(
-            reinterpret_cast<const __m128i*>(weights + i)
-        );
-        __m128i them_w16 = _mm_loadu_si128(
-            reinterpret_cast<const __m128i*>(weights + HIDDEN_SIZE + i)
-        );
-        __m256i us_w = _mm256_cvtepi16_epi32(us_w16);
-        __m256i them_w = _mm256_cvtepi16_epi32(them_w16);
-
-        // ------------------------------------------------------------
-        // Multiply even lanes:
-        // lanes 0,2,4,6
-        // _mm256_mul_epi32 gives signed int32 * int32 -> int64
-        // ------------------------------------------------------------
-
-        __m256i us_even = _mm256_mul_epi32(us_sq, us_w);
-        __m256i them_even = _mm256_mul_epi32(them_sq, them_w);
-
-        sum = _mm256_add_epi64(sum, us_even);
-        sum = _mm256_add_epi64(sum, them_even);
-
-        // ------------------------------------------------------------
-        // Multiply odd lanes:
-        // shift each 64-bit pair right by 32 so that
-        // elements 1,3,5,7 become the low 32 bits.
-        // ------------------------------------------------------------
-
-        __m256i us_sq_odd = _mm256_srli_epi64(us_sq, 32);
-        __m256i us_w_odd = _mm256_srli_epi64(us_w, 32);
-
-        __m256i them_sq_odd = _mm256_srli_epi64(them_sq, 32);
-        __m256i them_w_odd = _mm256_srli_epi64(them_w, 32);
-
-        __m256i us_odd = _mm256_mul_epi32(us_sq_odd, us_w_odd);
-        __m256i them_odd = _mm256_mul_epi32(them_sq_odd, them_w_odd);
-
-        sum = _mm256_add_epi64(sum, us_odd);
-        sum = _mm256_add_epi64(sum, them_odd);
+    int64_t sum = 0;
+    for (int i = 0; i < L1_SIZE; ++i) {
+        sum += screlu<int64_t>(us[i], qa) * weights[bucket][i];
+        sum += screlu<int64_t>(them[i], qa) * weights[bucket][L1_SIZE + i];
     }
-
-    // ------------------------------------------------------------
-    // Horizontal sum of 4 x int64
-    // ------------------------------------------------------------
-
-    __m128i lo = _mm256_castsi256_si128(sum);
-    __m128i hi = _mm256_extracti128_si256(sum, 1);
-
-    __m128i total128 = _mm_add_epi64(lo, hi);
-
-    int64_t total =
-        _mm_cvtsi128_si64(total128) +
-        _mm_extract_epi64(total128, 1);
-
-    // ------------------------------------------------------------
-    // Match scalar evaluate() exactly
-    // ------------------------------------------------------------
-
-    int64_t out64 = total;
-
-    out64 /= (int64_t)QA;
-    out64 += (int64_t)bias;
-    out64 *= SCALE;
-    out64 /= (int64_t)(QA * QB);
-
-    return (int)out64;
+    return static_cast<int>((sum / qa + biases[bucket]) * SCALE / (int64_t(qa) * qb));
 }
-*/
+
+int NNUE::eval_screlu_simd(bool is_white_move, U64 occ,
+                           const int16_t (&weights)[NUM_OUTPUT_BUCKETS][2 * L1_SIZE],
+                           const int32_t (&biases)[NUM_OUTPUT_BUCKETS], int16_t qa, int qb) {
+    const auto* us = is_white_move ? acc_stm.vals : acc_ntm.vals;
+    const auto* them = is_white_move ? acc_ntm.vals : acc_stm.vals;
+    const int bucket = output_bucket(occ);
+    const int64_t sum = dot_screlu_i16(us, weights[bucket], qa)
+                      + dot_screlu_i16(them, weights[bucket] + L1_SIZE, qa);
+    return static_cast<int>((sum / qa + biases[bucket]) * SCALE / (int64_t(qa) * qb));
+}
 
 // ============================================================
 // Incremental updates (STM/NTM)
@@ -669,7 +583,6 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
 // Debug helpers
 // ============================================================
 
-#ifdef _WIN32
 void NNUE::debug_simd(const Board& b) {
     build_halfka_accumulators(b);
     U64 occ = b.colorBitboards[0] | b.colorBitboards[1];
@@ -684,8 +597,8 @@ void NNUE::debug_simd(const Board& b) {
     int32_t stm_act_s[L1_SIZE], ntm_act_s[L1_SIZE];
     alignas(32) int16_t stm_act_v[L1_SIZE], ntm_act_v[L1_SIZE];
     for (int i = 0; i < L1_SIZE; i++) {
-        stm_act_s[i] = crelu(us->vals[i], QA);
-        ntm_act_s[i] = crelu(them->vals[i], QA);
+        stm_act_s[i] = crelu<int32_t>(us->vals[i], QA);
+        ntm_act_s[i] = crelu<int32_t>(them->vals[i], QA);
     }
     activate_crelu(us->vals,   stm_act_v, L1_SIZE, QA);
     activate_crelu(them->vals, ntm_act_v, L1_SIZE, QA);
@@ -848,7 +761,6 @@ void NNUE::debug_simd(const Board& b) {
     int total = mm_act1 + mm_pair + mm_l2in + mm_act2 + mm_l3in + mm_act3 + (out_s != out_v ? 1 : 0);
     std::cerr << "=== debug_simd summary: " << total << " total mismatches across all stages ===\n";
 }
-#endif
 
 void NNUE::debug_acc_full(const Accumulator& acc, const std::string& name) const {
     int32_t sum = 0, minv = acc.vals[0], maxv = acc.vals[0];

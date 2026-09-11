@@ -53,8 +53,9 @@ inline int feature_index_ntm_halfka(
 // Network Functions
 // ========================================================
 
-inline int32_t crelu(const int32_t x, const int32_t clamp_bound) {
-    return std::clamp<int32_t>(x, 0, clamp_bound);
+template <typename T>
+inline T crelu(const T x, const T clamp_bound) {
+    return std::clamp<T>(x, 0, clamp_bound);
 }
 
 template <typename T>

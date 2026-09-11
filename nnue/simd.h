@@ -5,8 +5,6 @@
 #include "network.h"
 #include "simd_defs.h"
 
-#ifdef _WIN32
-
 // --------- Accumulator -------------
 
 inline void init_bias_simd(const int16_t* bias, int16_t* vals) {
@@ -16,15 +14,12 @@ inline void init_bias_simd(const int16_t* bias, int16_t* vals) {
     }
 }
 
-/*
-inline void init_bias_smallnet(const int16_t* bias, int32_t* vals) {
-    for (int i = 0; i < HIDDEN_SIZE; i += 8) {
-        vec256_t b32 = _mm256_cvtepi16_epi32(
-            _mm_loadu_si128(reinterpret_cast<const vec128_t*>(bias + i))
-        );
-        _mm256_storeu_si256(reinterpret_cast<vec256_t*>(vals + i), b32);
+inline void init_bias_simd(const int16_t* bias, int32_t* vals) {
+    for (int i = 0; i < L1_SIZE; i += 8) {
+        const auto b = vec_convert_16_32<vec128_t, vec256_t>(vec_load<int16_t, vec128_t>(bias + i));
+        vec_store<vec256_t, int32_t>(vals + i, b);
     }
-*/
+}
 
 inline void add_feature_simd(const int16_t* col, int16_t* vals) {
     for (int i = 0; i < L1_SIZE; i += 16) {
@@ -38,26 +33,13 @@ inline void add_feature_simd(const int16_t* col, int16_t* vals) {
     }
 }
 
-/*
-inline void add_feature_smallnet(const int16_t* col, int32_t* vals) {
-    for (int i = 0; i < HIDDEN_SIZE; i += 8) {
-        // load 8 int32 accumulator values
-        vec256_t acc = _mm256_loadu_si256(
-            reinterpret_cast<const vec256_t*>(vals + i)
-        );
-        // load 8 int16 weights, widen to int32 inline
-        vec256_t w32 = _mm256_cvtepi16_epi32(
-            _mm_loadu_si128(reinterpret_cast<const vec128_t*>(col + i))
-        );
-
-        acc = _mm256_add_epi32(acc, w32);
-        
-        _mm256_storeu_si256(
-            reinterpret_cast<vec256_t*>(vals + i), acc
-        );
+inline void add_feature_simd(const int16_t* col, int32_t* vals) {
+    for (int i = 0; i < L1_SIZE; i += 8) {
+        auto acc = vec_load<int32_t, vec256_t>(vals + i);
+        const auto w = vec_convert_16_32<vec128_t, vec256_t>(vec_load<int16_t, vec128_t>(col + i));
+        vec_store<vec256_t, int32_t>(vals + i, vec_add32(acc, w));
     }
 }
-*/
 
 inline void remove_feature_simd(const int16_t* col, int16_t* vals) {
     for (int i = 0; i < L1_SIZE; i += 16) {
@@ -69,24 +51,13 @@ inline void remove_feature_simd(const int16_t* col, int16_t* vals) {
     }
 }
 
-/*
-inline void remove_feature_smallnet(const int16_t* col, int32_t* vals) {
-    for (int i = 0; i < HIDDEN_SIZE; i += 8) {
-        vec256_t acc = _mm256_loadu_si256(
-            reinterpret_cast<const vec256_t*>(vals + i)
-        );
-        vec256_t w32 = _mm256_cvtepi16_epi32(
-            _mm_loadu_si128(reinterpret_cast<const vec128_t*>(col + i))
-        );
-
-        acc = _mm256_sub_epi32(acc, w32);
-
-        _mm256_storeu_si256(
-            reinterpret_cast<vec256_t*>(vals + i), acc
-        );
+inline void remove_feature_simd(const int16_t* col, int32_t* vals) {
+    for (int i = 0; i < L1_SIZE; i += 8) {
+        auto acc = vec_load<int32_t, vec256_t>(vals + i);
+        const auto w = vec_convert_16_32<vec128_t, vec256_t>(vec_load<int16_t, vec128_t>(col + i));
+        vec_store<vec256_t, int32_t>(vals + i, vec_sub32(acc, w));
     }
 }
-*/
 
 inline void add_sub_feature_simd(const int16_t* add_col, const int16_t* sub_col, int16_t* vals) {
     for (int i = 0; i < L1_SIZE; i += 16) {
@@ -101,26 +72,14 @@ inline void add_sub_feature_simd(const int16_t* add_col, const int16_t* sub_col,
     }
 }
 
-/*
-inline void add_sub_feature_smallnet(const int16_t* add_col, const int16_t* sub_col, int16_t* vals) {
-    for (int i = 0; i < HIDDEN_SIZE; i += 8) {
-        vec256_t acc = _mm256_loadu_si256(
-            reinterpret_cast<const vec256_t*>(vals + i)
-        );
-        vec256_t add_w = _mm256_cvtepi16_epi32(
-            _mm_loadu_si128(reinterpret_cast<const vec128_t*>(add_col + i))
-        );
-        vec256_t sub_w = _mm256_cvtepi16_epi32(
-            _mm_loadu_si128(reinterpret_cast<const vec128_t*>(sub_col + i))
-        );
-
-        acc = _mm256_add_epi32(acc, add_w);
-        acc = _mm256_sub_epi32(acc, sub_w);
-
-        _mm256_storeu_si256(reinterpret_cast<vec256_t*>(vals + i), acc);
+inline void add_sub_feature_simd(const int16_t* add_col, const int16_t* sub_col, int32_t* vals) {
+    for (int i = 0; i < L1_SIZE; i += 8) {
+        auto acc = vec_load<int32_t, vec256_t>(vals + i);
+        const auto add = vec_convert_16_32<vec128_t, vec256_t>(vec_load<int16_t, vec128_t>(add_col + i));
+        const auto sub = vec_convert_16_32<vec128_t, vec256_t>(vec_load<int16_t, vec128_t>(sub_col + i));
+        vec_store<vec256_t, int32_t>(vals + i, vec_sub32(vec_add32(acc, add), sub));
     }
 }
-*/
 
 
 // ---------- feature transformer -----------
@@ -199,6 +158,24 @@ inline int64_t hsum_epi64(vec256_t v) {
     return vec_convert_si128_64<vec128_t, int64_t>(sum64);
 }
 
+// Fused SCReLU and int16 output weights. Widen before squaring (255^2
+// exceeds signed int16), then accumulate signed products in 64 bits.
+// Inputs use the current accumulator width; arrays must have L1_SIZE entries.
+inline int64_t dot_screlu_i16(const int16_t* values, const int16_t* weights, int16_t qa) {
+    auto even = zeros256;
+    auto odd = zeros256;
+    const auto cap = vec_set_32<vec256_t>(qa);
+    for (int i = 0; i < L1_SIZE; i += 8) {
+        auto x = vec_convert_16_32<vec128_t, vec256_t>(vec_load<int16_t, vec128_t>(values + i));
+        x = vec_clamp32(x, zeros256, cap);
+        x = vec_mullo32(x, x);
+        const auto w = vec_convert_16_32<vec128_t, vec256_t>(vec_load<int16_t, vec128_t>(weights + i));
+        even = vec_add64(even, vec_mul32(x, w));
+        odd = vec_add64(odd, vec_mul32(vec_shift_right64(x, 32), vec_shift_right64(w, 32)));
+    }
+    return hsum_epi64(vec_add64(even, odd));
+}
+
 // -------------- weight transforms -------------
 
 // dot product of int64 activations x int8 weights, exact (no overflow/truncation)
@@ -211,7 +188,10 @@ inline int64_t dot_i64_i8(const int64_t* a, const int8_t* w, int size) {
         vec256_t av = vec_load<int64_t, vec256_t>(a + i);
 
         // widen 4 int8 weights -> 4 int64 (sign-extended)
-        vec128_t w8   = vec_load<int8_t, vec128_t>(w + i); // loads 8 bytes, only low 4 used
+        // Only four weights remain in the final iteration: avoid an 8-byte overread.
+        int8_t weights[8] = {};
+        std::memcpy(weights, w + i, 4);
+        vec128_t w8   = vec_load<int8_t, vec128_t>(weights);
         vec256_t w32  = vec_convert_8_32<vec128_t, vec256_t>(w8);       // low 8 int8 -> 8 int32
         vec128_t w32l = vec_cast_256_128<vec256_t, vec128_t>(w32);    // low 4 int32 == w[i..i+3]
         vec256_t wv   = vec_convert_32_64<vec128_t, vec256_t>(w32l);    // 4 int64, sign-extended
@@ -280,6 +260,7 @@ inline void activate_screlu32(const int32_t* in, int32_t* out, int size, int32_t
     // handled the same (int16 is different)
     const vec256_t zero = zeros256;
     const vec256_t qa   = vec_set_32<vec256_t>(clamp_bound);
+    const vec256_t qa   = vec_set_32<vec256_t>(clamp_bound);
 
     for (int i = 0; i < size; i += 8) {
         vec256_t v = vec_load<int32_t, vec256_t>(in + i);
@@ -314,7 +295,5 @@ inline void activate_screlu64(const int32_t* in, int64_t* out, int size, int32_t
         vec_store<vec256_t, int64_t>(out + i + 4, out_hi);
     }
 }
-
-#endif // _WIN32
 
 #endif // SIMD_H

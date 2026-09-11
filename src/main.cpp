@@ -2,7 +2,7 @@
 #include <session.h>
 #include <engine.h>
 #include <board.h>
-#include <PrecomputedMoveData.h>
+#include <precomp.h>
 #include <iostream>
 #include <atomic>
 #include <thread>

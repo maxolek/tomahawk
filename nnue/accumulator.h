@@ -15,12 +15,10 @@ struct Accumulator {
 #endif
 
     inline void init_bias(const int16_t* bias) {
-        #ifdef _WIN32
-            init_bias_simd(bias, vals);
-        #else
-            for (int i = 0; i < L1_SIZE; i++)
-                vals[i] = bias[i];
-        #endif
+        init_bias_simd(bias, vals);
+        //for (int i = 0; i < L1_SIZE; i++)
+            //vals[i] = bias[i];
+
         #ifdef DEBUG
             active_features.clear();
         #endif
@@ -29,12 +27,10 @@ struct Accumulator {
     inline void add_feature(int feature_idx, int16_t (*W)[L1_SIZE]) {
         const int16_t* col = W[feature_idx];
 
-        #ifdef _WIN32
-            add_feature_simd(col, vals);
-        #else
-            for (int i = 0; i < L1_SIZE; i++)
-                vals[i] += col[i];
-        #endif
+        add_feature_simd(col, vals);
+        //for (int i = 0; i < L1_SIZE; i++)
+        //    vals[i] += col[i];
+
         #ifdef DEBUG
             active_features.insert(feature_idx);
         #endif
@@ -43,12 +39,10 @@ struct Accumulator {
     inline void remove_feature(int feature_idx, int16_t (*W)[L1_SIZE]) {
         const int16_t* col = W[feature_idx];
 
-        #ifdef _WIN32
-                remove_feature_simd(col, vals);
-        #else
-                for (int i = 0; i < L1_SIZE; i++)
-                    vals[i] -= col[i];
-        #endif
+        remove_feature_simd(col, vals);
+        //for (int i = 0; i < L1_SIZE; i++)
+            //vals[i] -= col[i];
+
         #ifdef DEBUG
                 active_features.erase(feature_idx);
         #endif
@@ -60,12 +54,9 @@ struct Accumulator {
         const int16_t* add_col = W[add_idx];
         const int16_t* sub_col = W[sub_idx];
 
-        #ifdef _WIN32
-                add_sub_feature_simd(add_col, sub_col, vals);
-        #else 
-                add_feature(add_idx, W);
-                remove_feature(sub_idx, W);
-        #endif
+        add_sub_feature_simd(add_col, sub_col, vals);
+        //add_feature(add_idx, W);
+        //remove_feature(sub_idx, W);
     }
 
 #ifdef DEBUG

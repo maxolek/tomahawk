@@ -678,15 +678,11 @@ void Engine::nnueEvalTest() {
     nnue.build_halfka_accumulators(search_board);
 
     int eval = nnue.evaluate(search_board.is_white_move, (search_board.colorBitboards[0] | search_board.colorBitboards[1]));
-#ifdef _WIN32
     int simd_eval = nnue.eval_simd(search_board.is_white_move, (search_board.colorBitboards[0] | search_board.colorBitboards[1]));
-#endif
 
     std::cout << "=== NNUE Evaluation ===\n";
     std::cout << "NNUE Eval: " << eval << " centipawns\n";
-#ifdef _WIN32
     std::cout << "SIMD Eval: " << simd_eval << " centipawns\n";
-#endif
 }
 
 void Engine::nnueSIMDTest() {

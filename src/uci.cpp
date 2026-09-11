@@ -2,10 +2,13 @@
 #include <vector>
 #include <string>
 #include <iostream>
-#include <stats.h>
+#include <search_stats.h>
 
 
 namespace fs = std::filesystem;
+
+std::string _no_stats_str = "\nPROD engine ... no stats tracking";
+
 
 UCI::UCI(Engine& eng) {
     engine=&eng;
@@ -108,62 +111,16 @@ void UCI::handleCommand(const std::string& line) {
     }
     else if (token == "config") { // see config options and apply
         fs::path dir = fs::path(PROJECT_ROOT) / "bin/configs";
-
-        // print config options
-        std::cout << "Available config files:\n\n";
-
-        int idx = 1;
-        std::vector<fs::path> configs;
-
-        for (const auto& entry : fs::directory_iterator(dir)) {
-            if (!entry.is_regular_file()) continue;
-            if (entry.path().extension() != ".ini") continue;
-
-            configs.push_back(entry.path());
-
-            std::cout << "  [" << idx++ << "] "
-                    << entry.path().stem().string()
-                    << "\n";
-        }
-
-        if (configs.empty()) {
-            std::cout << "  (no config files found)\n";
-            return;
-        }
-
-        // user select config file
-        std::cout << "\nSelect config number: ";
-
-        int choice;
-        std::cin >> choice;
-
-        if (choice < 1 || choice > (int)configs.size()) {
-            std::cout << "Invalid selection.\n";
-            return;
-        }
-
-        // apply config
-        engine->apply_config_file(configs[choice - 1]);
-
-        // apply specifics (e.g. tt.resize)
-        engine->tt.resize(engine->engine_options.HASH_SIZE_MB);
+        handleConfigList();
     }
     else if (token == "apply_config") { // apply config option (without seeing options)
         std::string name; 
         iss >> name;
-
-        fs::path path = fs::path(PROJECT_ROOT) / "bin/configs" / name;
-        if (path.extension() != ".ini") path += ".ini";
-        
-        engine->apply_config_file(path);
-
-        // apply specifics (e.g. tt.resize)
-        engine->tt.resize(engine->engine_options.HASH_SIZE_MB);
+        handleConfigApply(name);
     }
     else if (token == "save_config") { // save current config
         std::string name;
         iss >> name;
-
         engine->create_config_file(name);
     }
     else if (token == "ponderhit") {
@@ -173,11 +130,9 @@ void UCI::handleCommand(const std::string& line) {
     else if (token == "nnue_eval") {
         engine->nnueEvalTest();
     }
-#ifdef _WIN32
     else if (token == "nnue_test") {
         engine->nnueSIMDTest();
     }
-#endif
     else if (token == "perft") {
         int perft_depth;
         if (iss >> perft_depth)
@@ -190,25 +145,7 @@ void UCI::handleCommand(const std::string& line) {
         }
     }
     else if (token == "dumpzobrist") {
-        std::cout << "\nCurrent Hash: 0x" << std::hex 
-          << engine->game_board.zobrist_hash << "\n";
-        std::cout << "\nLast 10 hashes" << std::endl;
-        for (int i = 0; i < std::min(10,(int)engine->game_board.zobrist_history.size()); i++) {
-            const auto& elem = engine->game_board.zobrist_history[engine->game_board.zobrist_history.size() - 1 - i];
-            std::cout << elem << "\n";
-        }
-        std::cout << "\n--- Rep Stack ---\n";
-
-        int sum = 0;
-        for (const auto& entry : engine->game_board.hash_history) {
-            uint64_t hash = entry.first;
-            int count = entry.second;
-            std::cout << "Hash: 0x" << std::hex << hash 
-                    << "  Count: " << std::dec << count << "\n";
-            sum += count;
-        }
-        std::cout << "--- End of Hash History ---\n";
-        std::cout << "allgamemoves.size: " << engine->game_board.allGameMoves.size() << "\tzobrist_history.sum: " << sum << "\tzobrist_vec.size: " << engine->search_board.zobrist_history.size() << std::endl;
+        handleZobrist();
     }
     else if (token == "dump_tt") {
         #ifdef DEV
@@ -217,21 +154,21 @@ void UCI::handleCommand(const std::string& line) {
             std::cout << "\n(Last search) Overwrites: " << g_stats.tt_overwritten << std::endl;
             std::cout << "\n(Full game)   Fill %:     " << round_to_n_decimals(100*engine->tt.fillRatio(),2) << " %" << std::endl;
         #else 
-            std::cout << "\nPROD engine ... no stats tracking" << std::endl;
+            std::cout << _no_stats_str << std::endl;
         #endif
     }
     else if (token == "dumpstats") {
         dumpSearchStats(); // print collected stats to console for last search
     }
-    #ifdef DEV
-        else if (token == "dumpmoves") {
+    else if (token == "dumpmoves") {
+        #ifdef DEV
             dumpRootMoves(engine->result);
-        }
-    #endif
+        #else 
+            std::cout << _no_stats_str << std::endl;
+        #endif
+    }
     else if (token == "clear_tt") {
-        std::cout << "\nClearing ... " << engine->tt.filledCount << " / " << engine->tt.entriesCount << std::endl;
-        engine->tt.clear();
-        std::cout << "\nCleared!\n" << std::endl;
+        handleClearTT();
     }
     else if (token == "bench") {
         //engine->bench(depth);  // implement bench mode
@@ -359,3 +296,105 @@ void UCI::handleGo(std::istringstream& iss) {
     engine->sendBestMove(engine->bestMove, sendEval);
 }
 
+
+// test funcs
+
+void UCI::handleZobrist() {
+    std::cout << "\nCurrent Hash: 0x" << std::hex 
+        << engine->game_board.zobrist_hash << "\n";
+    std::cout << "\nLast 10 hashes" << std::endl;
+    for (int i = 0; i < std::min(10,(int)engine->game_board.zobrist_history.size()); i++) {
+        const auto& elem = engine->game_board.zobrist_history[engine->game_board.zobrist_history.size() - 1 - i];
+        std::cout << elem << "\n";
+    }
+    std::cout << "\n--- Rep Stack ---\n";
+
+    int sum = 0;
+    for (const auto& entry : engine->game_board.hash_history) {
+        uint64_t hash = entry.first;
+        int count = entry.second;
+        std::cout << "Hash: 0x" << std::hex << hash 
+                << "  Count: " << std::dec << count << "\n";
+        sum += count;
+    }
+    std::cout << "--- End of Hash History ---\n";
+    std::cout << "allgamemoves.size: " 
+            << engine->game_board.allGameMoves.size() 
+            << "\tzobrist_history.sum: " 
+            << sum 
+            << "\tzobrist_vec.size: " 
+            << engine->search_board.zobrist_history.size() 
+            << std::endl;
+}
+
+// TT
+
+void UCI::handleClearTT() {
+    size_t bytes = mbSize * 1024 * 1024;
+    entriesCount = 1ULL << static_cast<size_t>(
+        std::log2(bytes / sizeof(TTEntry))
+    );
+
+    std::cout << "\nClearing ... " 
+            << engine->tt.filledCount 
+            << " / " << engine->tt.entriesCount 
+            << "  (" << sizeof(engine.tt.TTEntry) * engine->tt.entriesCount
+            << ")\n"  << std::endl;
+
+    engine->tt.clear();
+
+    std::cout << "\nCleared!\n" << std::endl;
+}
+
+// configs
+
+void UCI::handleConfigList() {
+    // print config options
+    std::cout << "Available config files:\n\n";
+
+    int idx = 1;
+    std::vector<fs::path> configs;
+
+    for (const auto& entry : fs::directory_iterator(dir)) {
+        if (!entry.is_regular_file()) continue;
+        if (entry.path().extension() != ".ini") continue;
+
+        configs.push_back(entry.path());
+
+        std::cout << "  [" << idx++ << "] "
+                << entry.path().stem().string()
+                << "\n";
+    }
+
+    if (configs.empty()) {
+        std::cout << "  (no config files found)\n";
+        return;
+    }
+
+    // user select config file
+    std::cout << "\nSelect config number: ";
+
+    int choice;
+    std::cin >> choice;
+
+    if (choice < 1 || choice > (int)configs.size()) {
+        std::cout << "Invalid selection.\n";
+        return;
+    }
+
+    // apply config
+    engine->apply_config_file(configs[choice - 1]);
+
+    // apply specifics (e.g. tt.resize)
+    engine->tt.resize(engine->engine_options.HASH_SIZE_MB);
+}
+
+void UCI::handleConfigSet(std::string name) {
+    fs::path path = fs::path(PROJECT_ROOT) / "bin/configs" / name;
+    if (path.extension() != ".ini") path += ".ini";
+    
+    engine->apply_config_file(path);
+
+    // apply specifics (e.g. tt.resize)
+    engine->tt.resize(engine->engine_options.HASH_SIZE_MB);
+}

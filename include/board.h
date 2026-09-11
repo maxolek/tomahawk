@@ -4,7 +4,7 @@
 #include "move.h"
 #include "gamestate.h"
 #include "zobrist.h"
-#include "stats.h"
+#include "search_stats.h"
 #include "timer.h"
 //#include "NNUE.h"
 

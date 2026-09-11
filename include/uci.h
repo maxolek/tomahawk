@@ -18,6 +18,11 @@ public:
     void handleGo(std::istringstream& iss);
     void handleSetOption(std::istringstream& iss);
 
+    void handleZobrist();
+    void handleClearTT();
+    void handleConfigList();
+    void handleConfigSet(std::string name);
+
 private:
     Engine* engine;
 

@@ -42,12 +42,12 @@ set(SOURCES
     ${SRC_DIR}/gamestate.cpp
     ${SRC_DIR}/helpers.cpp
     ${SRC_DIR}/magics.cpp
-    ${SRC_DIR}/moveGenerator.cpp
-    ${NNUE_DIR}/nnue.cpp
-    ${SRC_DIR}/PrecomputedMoveData.cpp
+    ${SRC_DIR}/movegen.cpp
+    ${SRC_DIR}/nnue.cpp
+    ${SRC_DIR}/precomp.cpp
     ${SRC_DIR}/searcher.cpp
-    ${SRC_DIR}/tomahawk.cpp
-    ${SRC_DIR}/UCI.cpp
+    ${SRC_DIR}/uci.cpp
+    ${SRC_DIR}/main.cpp
 )
 
 add_executable(tomahawk ${SOURCES})
@@ -84,6 +84,12 @@ endif()
 # Default to Release
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+endif()
+
+# These configurations need explicit x86 flags; Apple Silicon uses NEON.
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i[3-6]86)$"
+    AND CMAKE_BUILD_TYPE MATCHES "^(Debug|RelWithDebInfo|Asan)$")
+    target_compile_options(tomahawk PRIVATE -mbmi2 -mavx2)
 endif()
 
 # DEBUG

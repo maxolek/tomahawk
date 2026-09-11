@@ -4,14 +4,14 @@
 
 #include "board.h"
 #include "magics.h"
-#include "moveGenerator.h"
+#include "movegen.h"
 #include "searcher.h"
 #include "tt.h"
 #include "search_limits.h"
 #include "logging.h"
-#include "stats.h"
+#include "search_stats.h"
 #include "timer.h"
-#include "game_log.h"
+#include "game_stats.h"
 #include "nnue.h"
 #include "book.h"
 

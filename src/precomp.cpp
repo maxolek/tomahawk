@@ -1,6 +1,6 @@
 // Precomputed blank board attack masks for all the pieces
 
-#include <PrecomputedMoveData.h>
+#include <precomp.h>
 
 // static member definitions
 U64 PrecomputedMoveData::blankPawnMoves[64][2] = {};
