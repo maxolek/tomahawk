@@ -111,12 +111,12 @@ void UCI::handleCommand(const std::string& line) {
     }
     else if (token == "config") { // see config options and apply
         fs::path dir = fs::path(PROJECT_ROOT) / "bin/configs";
-        handleConfigList();
+        handleConfigList(dir);
     }
     else if (token == "apply_config") { // apply config option (without seeing options)
         std::string name; 
         iss >> name;
-        handleConfigApply(name);
+        handleConfigSet(name);
     }
     else if (token == "save_config") { // save current config
         std::string name;
@@ -330,15 +330,15 @@ void UCI::handleZobrist() {
 // TT
 
 void UCI::handleClearTT() {
-    size_t bytes = mbSize * 1024 * 1024;
-    entriesCount = 1ULL << static_cast<size_t>(
+    size_t bytes = engine->engine_options.HASH_SIZE_MB * 1024 * 1024;
+    size_t entriesCount = 1ULL << static_cast<size_t>(
         std::log2(bytes / sizeof(TTEntry))
     );
 
     std::cout << "\nClearing ... " 
             << engine->tt.filledCount 
             << " / " << engine->tt.entriesCount 
-            << "  (" << sizeof(engine.tt.TTEntry) * engine->tt.entriesCount
+            << "  (" << sizeof(TTEntry) * engine->tt.entriesCount
             << ")\n"  << std::endl;
 
     engine->tt.clear();
@@ -348,7 +348,7 @@ void UCI::handleClearTT() {
 
 // configs
 
-void UCI::handleConfigList() {
+void UCI::handleConfigList(fs::path dir) {
     // print config options
     std::cout << "Available config files:\n\n";
 

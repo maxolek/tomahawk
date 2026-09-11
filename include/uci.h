@@ -20,7 +20,7 @@ public:
 
     void handleZobrist();
     void handleClearTT();
-    void handleConfigList();
+    void handleConfigList(fs::path dir);
     void handleConfigSet(std::string name);
 
 private:
