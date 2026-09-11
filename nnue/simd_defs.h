@@ -196,7 +196,6 @@ template <> inline vec256_t vec_mullo32<vec256_t>(vec256_t x, vec256_t y) {
     return _mm256_mullo_epi32(x, y); 
 }
 template <> inline vec256_t vec_mulhi16<vec256_t>(vec256_t x, vec256_t y) { 
->>>>>>> 795c7151d1e2462906045bd951ebab4b1df0e96d
     return _mm256_mulhi_epi16(x, y); 
 }
 
