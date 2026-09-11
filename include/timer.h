@@ -9,12 +9,6 @@
 #include <chrono>
 #include <fstream>
 
-#ifdef _MSC_VER
-    #define FORCEINLINE FORCEINLINE
-#else
-    #define FORCEINLINE inline __attribute__((always_inline))
-#endif
-
 // Timer IDs
 enum TimerID {
     T_MOVEGEN, T_MAKEMOVE, T_UNMAKE_MOVE,
@@ -47,9 +41,9 @@ struct Timer {
     using clock = std::chrono::high_resolution_clock;
     clock::time_point start;
 
-    FORCEINLINE void begin() { start = clock::now(); }
+    inline void begin() { start = clock::now(); }
 
-    FORCEINLINE uint64_t end() const {
+    inline uint64_t end() const {
         auto now = clock::now();
         return std::chrono::duration_cast<std::chrono::nanoseconds>(now - start).count();
     }
@@ -68,12 +62,12 @@ inline uint64_t g_game_end = 0;
 struct ScopedTimer {
     TimerID id;
     Timer t;
-    bool active;
+    bool active = true;
 
-    FORCEINLINE ScopedTimer(TimerID tid) 
+    inline ScopedTimer(TimerID tid)
         : id(tid) { t.begin(); }
 
-    FORCEINLINE ~ScopedTimer() {
+    inline ~ScopedTimer() {
         if (!active) return;
         g_timing.stats[id].cycles += t.end();
         g_timing.stats[id].calls++;
@@ -100,9 +94,9 @@ inline void logTimingStats(const std::string& fen = "") {
 
     for (int i = 0; i < T_COUNT; ++i) {
         const auto& ts = g_timing.stats[i];
-        double ms = double(ts.cycles) / Timer::freq() * 1000.0;
+        double ms = static_cast<double>(ts.cycles) / static_cast<double>(Timer::freq()) * 1000.0;
         //double pct = total_ms > 0 ? 100.0 * ms / total_ms : 0.0;
-        double avg_ms = ts.calls ? ms / ts.calls : 0.0;
+        double avg_ms = ts.calls ? ms / static_cast<double>(ts.calls) : 0.0;
 
         out << ",\"" << TimerNames[i] << "\":{"
             << "\"total_ms\":" << ms << ","

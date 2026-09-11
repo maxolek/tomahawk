@@ -101,6 +101,18 @@ template <> inline vec256_t vec_load<vec256_t, vec256_t>(const vec256_t* x) {
 }
 
 // store
+<<<<<<< HEAD
+template <> inline void vec_store<vec256_t, vec256_t>(vec256_t* to, vec256_t from) {
+    _mm256_store_si256(to, from); 
+}
+template <> inline void vec_store<vec256_t, int16_t>(int16_t* to, vec256_t from) {
+    _mm256_store_si256(reinterpret_cast<vec256_t*>(to), from); 
+}
+template <> inline void vec_store<vec256_t, int32_t>(int32_t* to, vec256_t from) {
+    _mm256_store_si256(reinterpret_cast<vec256_t*>(to), from); 
+}
+template <> inline void vec_store<vec256_t, int64_t>(int64_t* to, vec256_t from) {
+=======
 template <> inline void vec_store<vec256_t, vec256_t>(vec256_t* to, vec256_t from) { 
     _mm256_store_si256(to, from); 
 }
@@ -111,10 +123,24 @@ template <> inline void vec_store<vec256_t, int32_t>(int32_t* to, vec256_t from)
     _mm256_store_si256(reinterpret_cast<vec256_t*>(to), from); 
 }
 template <> inline void vec_store<vec256_t, int64_t>(int64_t* to, vec256_t from) { 
+>>>>>>> 795c7151d1e2462906045bd951ebab4b1df0e96d
     _mm256_store_si256(reinterpret_cast<vec256_t*>(to), from); 
 }
 
 // unpack
+<<<<<<< HEAD
+template <> inline vec128_t vec_unpacklo64<vec128_t>(vec128_t x, vec128_t y) {
+    return _mm_unpacklo_epi64(x, y); 
+}
+template <> inline vec256_t vec_unpacklo64<vec256_t>(vec256_t x, vec256_t y) {
+    return _mm256_unpacklo_epi64(x, y); 
+}
+
+template <> inline vec128_t vec_unpackhi64<vec128_t>(vec128_t x, vec128_t y) {
+    return _mm_unpackhi_epi64(x, y); 
+}
+template <> inline vec256_t vec_unpackhi64<vec256_t>(vec256_t x, vec256_t y) {
+=======
 template <> inline vec128_t vec_unpacklo64<vec128_t>(vec128_t x, vec128_t y) { 
     return _mm_unpacklo_epi64(x, y); 
 }
@@ -126,14 +152,22 @@ template <> inline vec128_t vec_unpackhi64<vec128_t>(vec128_t x, vec128_t y) {
     return _mm_unpackhi_epi64(x, y); 
 }
 template <> inline vec256_t vec_unpackhi64<vec256_t>(vec256_t x, vec256_t y) { 
+>>>>>>> 795c7151d1e2462906045bd951ebab4b1df0e96d
     return _mm256_unpackhi_epi64(x, y); 
 }
 
 // shift
+<<<<<<< HEAD
+template <> inline vec256_t vec_shift_left64<vec256_t>(vec256_t x, int shift) {
+    return _mm256_slli_epi64(x, shift); 
+}
+template <> inline vec256_t vec_shift_right64<vec256_t>(vec256_t x, int shift) {
+=======
 template <> inline vec256_t vec_shift_left64<vec256_t>(vec256_t x, int shift) { 
     return _mm256_slli_epi64(x, shift); 
 }
 template <> inline vec256_t vec_shift_right64<vec256_t>(vec256_t x, int shift) { 
+>>>>>>> 795c7151d1e2462906045bd951ebab4b1df0e96d
     return _mm256_srli_epi64(x, shift); 
 }
 template <> inline vec256_t vec_shift_right256<vec256_t>(vec256_t x, int shift) {
@@ -141,15 +175,38 @@ template <> inline vec256_t vec_shift_right256<vec256_t>(vec256_t x, int shift) 
 }
 
 // halves
+<<<<<<< HEAD
+template <> inline vec256_t vec_lo_half<vec256_t>(vec256_t x) {
+    const vec256_t mask_lo32 = vec_set_64<vec256_t>(0xFFFFFFFFLL);
+    return _mm256_and_si256(x, mask_lo32); 
+}
+template <> inline vec256_t vec_hi_half<vec256_t>(vec256_t x) {
+=======
 template <> inline vec256_t vec_lo_half<vec256_t>(vec256_t x) { 
     const vec256_t mask_lo32 = vec_set_64<vec256_t>(0xFFFFFFFFLL);
     return _mm256_and_si256(x, mask_lo32); 
 }
 template <> inline vec256_t vec_hi_half<vec256_t>(vec256_t x) { 
+>>>>>>> 795c7151d1e2462906045bd951ebab4b1df0e96d
     return _mm256_srli_epi64(x, 32); 
 }
 
 // add
+<<<<<<< HEAD
+template <> inline vec256_t vec_add16<vec256_t>(vec256_t x, vec256_t y) {
+    return _mm256_add_epi16(x, y); 
+}
+template <> inline vec128_t vec_add32<vec128_t>(vec128_t x, vec128_t y) {
+    return _mm_add_epi32(x, y); 
+}
+template <> inline vec256_t vec_add32<vec256_t>(vec256_t x, vec256_t y) {
+    return _mm256_add_epi32(x, y); 
+}
+template <> inline vec128_t vec_add64<vec128_t>(vec128_t x, vec128_t y) {
+    return _mm_add_epi64(x, y); 
+}
+template <> inline vec256_t vec_add64<vec256_t>(vec256_t x, vec256_t y) {
+=======
 template <> inline vec256_t vec_add16<vec256_t>(vec256_t x, vec256_t y) { 
     return _mm256_add_epi16(x, y); 
 }
@@ -163,14 +220,22 @@ template <> inline vec128_t vec_add64<vec128_t>(vec128_t x, vec128_t y) {
     return _mm_add_epi64(x, y); 
 }
 template <> inline vec256_t vec_add64<vec256_t>(vec256_t x, vec256_t y) { 
+>>>>>>> 795c7151d1e2462906045bd951ebab4b1df0e96d
     return _mm256_add_epi64(x, y); 
 }
 
 // sub
+<<<<<<< HEAD
+template <> inline vec256_t vec_sub16<vec256_t>(vec256_t x, vec256_t y) {
+    return _mm256_sub_epi16(x, y); 
+}
+template <> inline vec256_t vec_sub32<vec256_t>(vec256_t x, vec256_t y) {
+=======
 template <> inline vec256_t vec_sub16<vec256_t>(vec256_t x, vec256_t y) { 
     return _mm256_sub_epi16(x, y); 
 }
 template <> inline vec256_t vec_sub32<vec256_t>(vec256_t x, vec256_t y) { 
+>>>>>>> 795c7151d1e2462906045bd951ebab4b1df0e96d
     return _mm256_sub_epi32(x, y); 
 }
 
@@ -196,19 +261,31 @@ template <> inline vec256_t vec_mullo32<vec256_t>(vec256_t x, vec256_t y) {
     return _mm256_mullo_epi32(x, y); 
 }
 template <> inline vec256_t vec_mulhi16<vec256_t>(vec256_t x, vec256_t y) { 
+>>>>>>> 795c7151d1e2462906045bd951ebab4b1df0e96d
     return _mm256_mulhi_epi16(x, y); 
 }
 
 // shuffle 
+<<<<<<< HEAD
+template <> inline vec256_t vec_shuffle32<vec256_t>(vec256_t x, int imm) {
+    return _mm256_shuffle_epi32(x, imm); 
+}
+template <> inline vec128_t vec_shuffle32<vec128_t>(vec128_t x, int imm) {
+=======
 template <> inline vec256_t vec_shuffle32<vec256_t>(vec256_t x, int imm) { 
     return _mm256_shuffle_epi32(x, imm); 
 }
 template <> inline vec128_t vec_shuffle32<vec128_t>(vec128_t x, int imm) { 
+>>>>>>> 795c7151d1e2462906045bd951ebab4b1df0e96d
     return _mm_shuffle_epi32(x, imm); 
 }
 
 // permute
+<<<<<<< HEAD
+template <> inline vec256_t vec_permute2x128<vec256_t>(vec256_t x, vec256_t y, int imm) {
+=======
 template <> inline vec256_t vec_permute2x128<vec256_t>(vec256_t x, vec256_t y, int imm) { 
+>>>>>>> 795c7151d1e2462906045bd951ebab4b1df0e96d
     return _mm256_permute2x128_si256(x, y, imm); 
 } 
 
@@ -308,9 +385,12 @@ template <> inline vec128_t vec_load<int8_t, vec128_t>(const int8_t* x) {
     // _mm_loadl_epi64 (see simd_defs.h note on why int8 differs from the rest)
     return vcombine_s8(vld1_s8(x), vdup_n_s8(0));
 }
+<<<<<<< HEAD
+=======
 template <> inline vec128_t vec_load<int16_t, vec128_t>(const int16_t* x) {
     return vreinterpretq_s8_s16(vld1q_s16(x));
 }
+>>>>>>> 795c7151d1e2462906045bd951ebab4b1df0e96d
 template <> inline vec256_t vec_load<int16_t, vec256_t>(const int16_t* x) {
     return {
         vreinterpretq_s8_s16(vld1q_s16(x)),
@@ -371,23 +451,51 @@ template <> inline vec256_t vec_unpackhi64<vec256_t>(vec256_t x, vec256_t y) {
  
 // shift (NEON immediates must be compile-time constants; use the
 // variable-shift intrinsics since these wrappers take a runtime `shift`)
+<<<<<<< HEAD
+template <> inline vec256_t vec_shift_left32<vec256_t>(vec256_t x, int shift) {
+    int32x4_t s = vdupq_n_s32(shift);
+    return {
+        vreinterpretq_s8_s32(vshlq_s32(vreinterpretq_s32_s8(x.lo), s)),
+        vreinterpretq_s8_s32(vshlq_s32(vreinterpretq_s32_s8(x.hi), s))
+    };
+}
+template <> inline vec256_t vec_shift_left64<vec256_t>(vec256_t x, int shift) {
+    int64x2_t s = vdupq_n_s64((int64_t)shift);
+=======
 template <> inline vec256_t vec_shift_left64<vec256_t>(vec256_t x, int shift) {
     if (shift < 0 || shift >= 64) return zeros256;
     int64x2_t s = vdupq_n_s64(shift);
+>>>>>>> 795c7151d1e2462906045bd951ebab4b1df0e96d
     return {
         vreinterpretq_s8_s64(vshlq_s64(vreinterpretq_s64_s8(x.lo), s)),
         vreinterpretq_s8_s64(vshlq_s64(vreinterpretq_s64_s8(x.hi), s))
     };
 }
+<<<<<<< HEAD
+template <> inline vec256_t vec_shift_right32<vec256_t>(vec256_t x, int shift) {
+    // logical (zero-fill) right shift == left shift by a negative amount on
+    // the unsigned type, matching _mm256_srli_epi32
+    int32x4_t s = vdupq_n_s32(-shift);
+    return {
+        vreinterpretq_s8_u32(vshlq_u32(vreinterpretq_u32_s8(x.lo), s)),
+        vreinterpretq_s8_u32(vshlq_u32(vreinterpretq_u32_s8(x.hi), s))
+    };
+}
+template <> inline vec256_t vec_shift_right64<vec256_t>(vec256_t x, int shift) {
+    int64x2_t s = vdupq_n_s64((int64_t)(-shift));
+=======
 template <> inline vec256_t vec_shift_right64<vec256_t>(vec256_t x, int shift) {
     if (shift < 0 || shift >= 64) return zeros256;
     int64x2_t s = vdupq_n_s64(-shift);
+>>>>>>> 795c7151d1e2462906045bd951ebab4b1df0e96d
     return {
         vreinterpretq_s8_u64(vshlq_u64(vreinterpretq_u64_s8(x.lo), s)),
         vreinterpretq_s8_u64(vshlq_u64(vreinterpretq_u64_s8(x.hi), s))
     };
 }
  
+<<<<<<< HEAD
+=======
 // AVX2 byte shifts are independent within each 128-bit half.
 template <> inline vec256_t vec_shift_right256<vec256_t>(vec256_t x, int shift) {
     if (shift < 0 || shift >= 16) return zeros256;
@@ -398,6 +506,7 @@ template <> inline vec256_t vec_shift_right256<vec256_t>(vec256_t x, int shift) 
     return { vqtbl1q_s8(x.lo, indices), vqtbl1q_s8(x.hi, indices) };
 }
 
+>>>>>>> 795c7151d1e2462906045bd951ebab4b1df0e96d
 template <> inline vec256_t vec_lo_half<vec256_t>(vec256_t x) {
     uint64x2_t mask = vdupq_n_u64(0xFFFFFFFFULL);
     return {
@@ -507,7 +616,13 @@ template <> inline vec256_t vec_clamp32<vec256_t>(vec256_t x, vec256_t min, vec2
     return { half(x.lo, min.lo, max.lo), half(x.hi, min.hi, max.hi) };
 }
  
+<<<<<<< HEAD
+// shuffle (only ever called on vec128_t in this codebase, via hsum_epi32)
+// with two known literal immediates -- fast-path since `imm` is always
+// a compile-time constant at the call site and will fold away)
+=======
 // Fast paths for the two shuffles used by hsum_epi32.
+>>>>>>> 795c7151d1e2462906045bd951ebab4b1df0e96d
 template <> inline vec128_t vec_shuffle32<vec128_t>(vec128_t x, int imm) {
     // [src2,src3,src0,src1] == swap the two 64-bit halves
     if (imm == _MM_SHUFFLE(1, 0, 3, 2)) { 

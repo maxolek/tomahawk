@@ -34,11 +34,6 @@ static void decode_bullet_affine(const uint8_t* p, T* out) {
             out[o * NUM_IN + i] = flat[(size_t)i * NUM_OUT + o];
 }
 
-static void decode_mirrored_bucket(int bucket, int& rank, int& file) {
-    rank = bucket / 4;
-    file = bucket % 4;
-}
-
 // ============================================================
 // Load quantised.bin
 // ============================================================
@@ -290,7 +285,7 @@ int NNUE::evaluate(bool is_white_move, U64 occ) {
     out64 *= SCALE;
     out64 /= (int64_t)(QA * QB * QC * QC);
 
-    return out64;
+    return static_cast<int>(out64);
 }
 
 // AVX2 / NEON -- 32 int8
@@ -340,7 +335,7 @@ int NNUE::eval_simd(bool is_white_move, U64 occ) {
 
         sum /= QA; // (QA*QA)*QB -. QA*QB
         sum += bias;
-        l2_in[o] = sum;
+        l2_in[o] = static_cast<int32_t>(sum);
     }
 
     // ===== L2: hidden 1 -. hidden 2 =====
@@ -849,8 +844,6 @@ static void decode_halfka_feature(int f, bool ntm) {
     int rank = bucket / 4;
     int file = bucket % 4;
 
-    int flip = 0;
-
     // We don't know the original king file from the bucket alone.
     // The canonical bucket represents files a-d, with e-h folded
     // onto them.
@@ -1214,8 +1207,8 @@ bool NNUE::check_active_features_consistency(const Accumulator& incr,
         auto print_decoded = [&](const std::vector<int>& vec) {
             for (int f : vec) {
                 auto [piece, sq, color] = decode_feature(f);
-                char file = 'a' + (sq % 8);
-                char rank = '1' + (sq / 8);
+                char file = static_cast<char>('a' + (sq % 8));
+                char rank = static_cast<char>('1' + (sq / 8));
                 std::cerr << "  idx=" << f
                           << " piece=" << piece
                           << " color=" << (color ? "black" : "white")

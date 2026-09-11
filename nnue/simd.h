@@ -278,9 +278,9 @@ inline int64_t dot_i32_i8_widen(const int32_t* a, const int8_t* w, int size) {
 
 // ----------- activations -------------
 
-inline void activate_crelu(const int16_t* in, int16_t* out, int size, int clamp_bound) {
+inline void activate_crelu(const int16_t* in, int16_t* out, int size, int16_t clamp_bound) {
     const vec256_t zero = zeros256;
-    const vec256_t qa   = vec_set_16<vec256_t>(static_cast<int16_t>(clamp_bound));
+    const vec256_t qa   = vec_set_16<vec256_t>(clamp_bound);
     for (int i = 0; i < size; i += 16) {
         vec256_t v       = vec_load<int16_t, vec256_t>(in + i);
         vec256_t clipped = vec_clamp16<vec256_t>(v, zero, qa);
@@ -289,10 +289,11 @@ inline void activate_crelu(const int16_t* in, int16_t* out, int size, int clamp_
 }
 
 // fold SCRELU into multiply-add
-inline void activate_screlu32(const int32_t* in, int32_t* out, int size, int clamp_bound) {
+inline void activate_screlu32(const int32_t* in, int32_t* out, int size, int32_t clamp_bound) {
     // TYPE = int32 or int64
     // handled the same (int16 is different)
     const vec256_t zero = zeros256;
+    const vec256_t qa   = vec_set_32<vec256_t>(clamp_bound);
     const vec256_t qa   = vec_set_32<vec256_t>(clamp_bound);
 
     for (int i = 0; i < size; i += 8) {

@@ -398,6 +398,7 @@ inline void logSearchStats(const std::string& fen = "") {
     static std::ofstream out(Logging::log_file_name("search.jsonl"), std::ios::app);
     if (!out.is_open()) return;
 
+    #ifdef DEV
     size_t n = g_stats.max_depth + 1;
     size_t q_n = g_stats.max_qdepth + 1;
 
@@ -410,6 +411,7 @@ inline void logSearchStats(const std::string& fen = "") {
         } oss << "]"; 
         return oss.str(); 
     };
+    #endif
 
     out << "{"
         << "\"engine_id\":\"" << ENGINE_ID << "\","
@@ -571,10 +573,9 @@ inline void dumpSearchStats()
     };
  
     const auto fh = fhStats(g_stats.fail_high_index, g_stats.fail_highs);
-    #endif
- 
     const size_t n   = g_stats.max_depth + 1;   // iterative-deepening rows
     const size_t q_n = g_stats.max_qdepth + 1;  // tree-ply rows
+    #endif
  
     constexpr int W = 160; // total box width
     auto rule = [&](char c) { cout << std::string(W, c) << "\n"; };

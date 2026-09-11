@@ -134,9 +134,9 @@ void UCI::handleCommand(const std::string& line) {
         engine->nnueSIMDTest();
     }
     else if (token == "perft") {
-        int depth;
-        iss >> depth;
-        engine->perftPrint(depth);
+        int perft_depth;
+        if (iss >> perft_depth)
+            engine->perftPrint(perft_depth);
     }
     else if (token == "see") {
         std::string target_sq;

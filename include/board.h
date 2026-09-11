@@ -67,6 +67,7 @@ public:
     // ==================== Constructors ====================
     Board(std::string _fen = STARTPOS_FEN); ///< Initialize from FEN
     Board(const Board& other); // deep copy search->game boards
+    Board& operator=(const Board& other) = default;
 
     // ==================== Move execution ====================
     void MakeMove(Move move = false);               ///< Apply a move and update board state

@@ -77,8 +77,8 @@ std::string PolyglotBook::polyglotMoveToUCI(uint16_t move) {
 }
 
 std::string PolyglotBook::squareToString(int sq) {
-    char file = 'a' + (sq % 8);
-    char rank = '1' + (sq / 8);
+    char file = static_cast<char>('a' + (sq % 8));
+    char rank = static_cast<char>('1' + (sq / 8));
     return std::string() + file + rank;
 }
 
