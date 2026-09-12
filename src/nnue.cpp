@@ -396,7 +396,7 @@ int NNUE::eval_screlu(bool is_white_move, U64 occ) {
     sum += (int64_t)l1b_small[bucket];
     sum *= SCALE;
     sum /= int64_t(qa_small * QB);
-    return sum;
+    return (int)sum;
 }
 
 int NNUE::eval_screlu_simd(bool is_white_move, U64 occ) {

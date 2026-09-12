@@ -76,7 +76,7 @@ struct EngineOptions {
     // big      net : 1024_16_32_pairmul_screlu  
     // small    net : output_buckets_25wdl_1000  
     // original net : 768_128x
-    fs::path nnue_weight_path  = fs::path(PROJECT_ROOT) / "nnue/weights/cirr_filt_0wdl_LR_001_0001-1200.bin"; // 1024_16_32_pairmul_screlu  output_buckets_25wdl_1000  768_128x
+    fs::path nnue_weight_path  = fs::path(PROJECT_ROOT) / "nnue/weights/cirr_filt_0wdl_LR_001_000435_600batches-1200.bin"; // 1024_16_32_pairmul_screlu  output_buckets_25wdl_1000  768_128x
     fs::path opening_book_path = fs::path(PROJECT_ROOT) / "bin/Titans.bin";
     fs::path syzygy_path       = fs::path(PROJECT_ROOT);
 };
