@@ -1,4 +1,4 @@
-#include <UCI.h>
+#include <uci.h>
 #include <vector>
 #include <string>
 #include <iostream>
@@ -303,7 +303,7 @@ void UCI::handleZobrist() {
     std::cout << "\nCurrent Hash: 0x" << std::hex 
         << engine->game_board.zobrist_hash << "\n";
     std::cout << "\nLast 10 hashes" << std::endl;
-    for (int i = 0; i < std::min(10,(int)engine->game_board.zobrist_history.size()); i++) {
+    for (size_t i = 0; i < std::min((size_t)10,engine->game_board.zobrist_history.size()); i++) {
         const auto& elem = engine->game_board.zobrist_history[engine->game_board.zobrist_history.size() - 1 - i];
         std::cout << elem << "\n";
     }
@@ -330,19 +330,15 @@ void UCI::handleZobrist() {
 // TT
 
 void UCI::handleClearTT() {
-    size_t bytes = engine->engine_options.HASH_SIZE_MB * 1024 * 1024;
-    size_t entriesCount = 1ULL << static_cast<size_t>(
-        std::log2(bytes / sizeof(TTEntry))
-    );
-
     std::cout << "\nClearing ... " 
-            << engine->tt.filledCount 
-            << " / " << engine->tt.entriesCount 
-            << "  (" << sizeof(TTEntry) * engine->tt.entriesCount
-            << ")\n"  << std::endl;
+            << engine->tt.filledCount << " / " << engine->tt.entriesCount 
+            << "  "
+            << std::fixed << std::setprecision(1) << 100*engine->tt.fillRatio()
+            << "%  " 
+            << std::fixed << std::setprecision(1) << (sizeof(TTEntry) * engine->tt.filledCount) / 1024
+            << " KBs)\n"  << std::endl;
 
     engine->tt.clear();
-
     std::cout << "\nCleared!\n" << std::endl;
 }
 
@@ -383,7 +379,7 @@ void UCI::handleConfigList(fs::path dir) {
     }
 
     // apply config
-    engine->apply_config_file(configs[choice - 1]);
+    engine->apply_config_file(configs[(size_t)(choice - 1)]);
 
     // apply specifics (e.g. tt.resize)
     engine->tt.resize(engine->engine_options.HASH_SIZE_MB);
