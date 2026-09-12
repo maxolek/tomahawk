@@ -69,7 +69,7 @@ struct SearchSettings {
 struct EngineOptions {
     int  MOVE_OVERHEAD_MS = 10;
     int  MAX_THREADS      = 1;
-    int  HASH_SIZE_MB     = 512;
+    int  HASH_SIZE_MB     = 512; // use higher int range incase multi-gb TT is tried (unlikely)
     bool PONDERING        = false;
     bool UCI_SHOW_WDL     = false;
 

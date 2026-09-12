@@ -373,7 +373,7 @@ void Engine::startSearch() {
     //sendBestMove(bestMove);
 
     // finalize cumulative stats
-    g_stats.time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    g_stats.time_ms = (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - start_time).count();
     g_stats.principal_variation = result.best_line.line;
     #ifdef DEV

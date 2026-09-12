@@ -5,7 +5,8 @@ project(tomahawk LANGUAGES CXX)
 # Version
 # -------------------
 # Usage:
-#   cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_C_COMPILER=g++ -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Release -DVERSION=1.2.3
+#   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVERSION=1.2.3
+#   cmake -S . -B build  -DCMAKE_BUILD_TYPE=Release -DVERSION=1.2.3
 #   cmake --build build
 #
 if (NOT DEFINED VERSION)
@@ -18,6 +19,9 @@ add_compile_definitions(PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
 # -------------------
 # C++ standard
 # -------------------
+#set(CMAKE_C_COMPILER=g++)
+set(CMAKE_CXX_COMPILER=g++)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -76,21 +80,37 @@ endif()
 # -------------------
 # Build type logic
 # -------------------
+
+# system
+if (WIN32)
+    message(STATUS "Building Tomahawk for Windows")
+elseif (APPLE)
+    message(STATUS "Building Tomahawk for macOS")
+elseif (UNIX)
+    message(STATUS "Building Tomahawk for Linux/Unix")
+endif()
+
+# flags
 set(TOMAHAWK_LTO_FLAG -flto)
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set(TOMAHAWK_LTO_FLAG -flto=auto)
 endif()
 
-# Default to Release
+# type - Default to Release
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
-# These configurations need explicit x86 flags; Apple Silicon uses NEON.
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i[3-6]86)$"
-    AND CMAKE_BUILD_TYPE MATCHES "^(Debug|RelWithDebInfo|Asan)$")
-    target_compile_options(tomahawk PRIVATE -mbmi2 -mavx2)
+# SIMD - These configurations need explicit x86 flags; Apple Silicon uses NEON.
+if (APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+    message(STATUS "Apple Silicon detected — using ARM/NEON")
+elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i[3-6]86)$")
+    message(STATUS "x86 detected — enabling AVX2/BMI2 where appropriate")
 endif()
+
+#######################
+#### COMPILE TYPES
+######################
 
 # DEBUG
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")

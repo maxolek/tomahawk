@@ -48,15 +48,15 @@ class TranspositionTable {
 public:
     TTStats stats;
 
-    TranspositionTable(size_t mbSize = 512) {
+    TranspositionTable(int mbSize = 512) {
         resize(mbSize);
     }
 
     // Resize table to given MB size
-    void resize(size_t mbSize) {
-        size_t bytes = mbSize * 1024 * 1024;
+    void resize(int mbSize) {
+        int bytes = mbSize * 1024 * 1024;
         entriesCount = 1ULL << static_cast<size_t>(
-            std::log2(bytes / sizeof(TTEntry))
+            std::log2((unsigned long)bytes / sizeof(TTEntry))
         );
 
         table.assign(entriesCount, TTEntry{});

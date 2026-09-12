@@ -31,7 +31,7 @@ static void decode_bullet_affine(const uint8_t* p, T* out) {
     const T* flat = reinterpret_cast<const T*>(p);
     for (int i = 0; i < NUM_IN; ++i)
         for (int o = 0; o < NUM_OUT; ++o)
-            out[o * NUM_IN + i] = flat[(size_t)i * NUM_OUT + o];
+            out[o * NUM_IN + i] = flat[(size_t)i * NUM_OUT + (size_t)o];
 }
 
 // ============================================================

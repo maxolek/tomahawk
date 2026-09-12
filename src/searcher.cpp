@@ -269,7 +269,7 @@ int Searcher::moveScore(const Move& move, const Board& boardRef,
 
     // TT + PV
     if (Move::SameMove(ttMove, move)) return move_scores.TT_BASE;
-    if (ply < (int)previousPV.size() && Move::SameMove(move, previousPV[ply])) return move_scores.PV_BASE;
+    if (ply < (int)previousPV.size() && Move::SameMove(move, previousPV[(size_t)ply])) return move_scores.PV_BASE;
 
     // promotions
     if (move.IsPromotion()) {
@@ -313,7 +313,7 @@ int Searcher::moveScore(const Move& move, const Board& boardRef,
     return move_scores.QUIET_BASE + historyHeuristic[sidePiece][move.TargetSquare()] / 16;
 }
 
-void Searcher::orderedMoves(Move moves[MAX_MOVES], size_t count,
+void Searcher::orderedMoves(Move moves[MAX_MOVES], int count,
                             const Board& boardRef, int ply, 
                             const Move ttMove, const std::vector<Move>& previousPV) {
     
@@ -322,20 +322,20 @@ void Searcher::orderedMoves(Move moves[MAX_MOVES], size_t count,
     #endif
     // sorting
     std::pair<int, Move> scored[MAX_MOVES];
-    for (size_t i = 0; i < count; ++i)
+    for (int i = 0; i < count; ++i)
         scored[i] = {moveScore(moves[i], boardRef, ply, ttMove, previousPV), moves[i]};
 
     std::sort(scored, scored + count,
               [](const auto& a, const auto& b) { return a.first > b.first; });
 
-    for (size_t i = 0; i < count; ++i) moves[i] = scored[i].second;
+    for (int i = 0; i < count; ++i) moves[i] = scored[i].second;
 }
 
 int Searcher::generateAndOrderMoves(Move moves[MAX_MOVES], int ply, const Move ttMove, const std::vector<Move>& previousPV) {
     int count = movegen.generateMoves(board, false); // the bool flag for captures-only or not — adapt if signature differs
     std::copy_n(movegen.moves, count, moves);
 
-    orderedMoves(moves, static_cast<size_t>(count), board, ply, ttMove, previousPV);
+    orderedMoves(moves, count, board, ply, ttMove, previousPV);
     
     return count;
 }

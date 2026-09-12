@@ -160,7 +160,7 @@ public:
 
     void orderedMoves(
         Move moves[MAX_MOVES],
-        size_t count,
+        int count,
         const Board& board,
         int ply,
         const Move ttMove,

@@ -45,7 +45,7 @@ struct Timer {
 
     inline uint64_t end() const {
         auto now = clock::now();
-        return std::chrono::duration_cast<std::chrono::nanoseconds>(now - start).count();
+        return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(now - start).count();
     }
 
     static uint64_t freq() { return 1'000'000'000ULL; } // nanoseconds
