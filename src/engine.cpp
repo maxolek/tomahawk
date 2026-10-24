@@ -424,6 +424,20 @@ void Engine::sendBestMove(Move best, bool eval, bool ponder) {
     Logging::logUCIout(best.uci());
 }
 
+void Engine::sendSearchInfo(SearchResult result) {
+    std::cout << "info";
+    std::cout << " depth " << g_stats.max_completed_depth;
+    std::cout << " qdepth " << g_stats.max_qdepth;
+    std::cout << " nodes " << g_stats.nodes;
+    std::cout << " time " << g_stats.time_ms;
+    std::cout << " score cp " << result.eval;
+    std::cout << " pv";
+    for (const auto& move : result.best_line.line) {
+        std::cout << " " << move.uci();
+    }
+    std::cout << std::endl;
+}
+
 
 // GAME LOGGING
 

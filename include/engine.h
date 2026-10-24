@@ -143,6 +143,7 @@ public:
     void computeSearchTime(const SearchSettings& settings); // defines the settings for it_dp
     //  Result
     void sendBestMove(Move bestMove, bool eval = false, bool ponder = false); // output of it_dp
+    void sendSearchInfo(SearchResult result); // nodes, time, depth, eval, pv, etc (info string)
 
     // --- Games ---
     void newGame();

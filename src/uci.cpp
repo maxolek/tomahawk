@@ -38,7 +38,7 @@ void UCI::handleCommand(const std::string& line) {
     Logging::logUCIin(line); // cmd -> engine
 
     // standard commands
-    if ((token == "uci") || (token == "uci_dev")) {
+    if (token == "uci") {
             std::cout << "id name tomahawk\n";
             std::cout << "id version " << ENGINE_ID << "\n";
             std::cout << "id author max oleksa\n";
@@ -48,11 +48,10 @@ void UCI::handleCommand(const std::string& line) {
             std::cout << "option name Threads type spin default " << engine->engine_options.MAX_THREADS<< " min 1 max 1\n";
             std::cout << "option name Hash type spin default " << engine->engine_options.HASH_SIZE_MB<< " min 1 max 1024\n";
             std::cout << "option name Ponder type check default " << engine->engine_options.PONDERING << "\n";
-            if (token == "uci_dev") {std::cout << std::endl;} // line break
             // Required for lichess
             std::cout << "option name UCI_ShowWDL type check default " << engine->engine_options.UCI_SHOW_WDL << "\n";
             
-            if (token == "uci_dev") {
+            #ifdef DEV
                 std::cout << std::endl; // line break
                 // books
                 std::cout << "option name nnue_weight_file type string default " << engine->engine_options.nnue_weight_path << "\n";
@@ -78,7 +77,7 @@ void UCI::handleCommand(const std::string& line) {
                 std::cout << "option name r_lmr_denom type spin default " << static_cast<int>(100*engine->searcher->params.R_LMR_DENOM) << " min 100 max 500\n";
                 // line break
                 std::cout << std::endl; 
-            }
+            #endif
 
             // logging
             std::cout << "option name log_dir type string default " << Logging::log_dir << "\n";
@@ -293,6 +292,11 @@ void UCI::handleGo(std::istringstream& iss) {
     // Otherwise start a normal search
     engine->trackGame();
     engine->startSearch();
+    
+    #ifdef DEV
+        engine->sendSearchInfo(engine->result);
+    #endif
+    
     engine->sendBestMove(engine->bestMove, sendEval);
 }
 
@@ -334,9 +338,10 @@ void UCI::handleClearTT() {
             << engine->tt.filledCount << " / " << engine->tt.entriesCount 
             << "  "
             << std::fixed << std::setprecision(1) << 100*engine->tt.fillRatio()
-            << "%  " 
-            << std::fixed << std::setprecision(1) << (sizeof(TTEntry) * engine->tt.filledCount) / 1024
-            << " KBs)\n"  << std::endl;
+            << "%  (" 
+            << std::fixed << std::setprecision(1) << (sizeof(TTEntry) * engine->tt.filledCount) / (1024*1024)
+            << " MBs)\n"  
+    << std::endl;
 
     engine->tt.clear();
     std::cout << "\nCleared!\n" << std::endl;

@@ -1,119 +1,311 @@
 <div align="center">
 
-<img src="bin/logos/logo.png" alt="Tomahawk logo" width="200">
+<img width="200" height="200" src="docs/_logo.png"/>
 
-# Tomahawk
+# San Jacinto
 
-An NNUE chess engine written in C++.
+[![Python](https://img.shields.io/badge/Python-3.10+-green.svg)]()
+[![JavaScript](https://img.shields.io/badge/JavaScript-blue.svg)]()
 
-![UCI protocol](https://img.shields.io/badge/protocol-UCI-16a34a)
-![C++17](https://img.shields.io/badge/C%2B%2B-17-2563eb)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
 
-[Play Tomahawk on Lichess](https://lichess.org/@/tomahawkBOT)
+Development, testing, tuning, and analytics framework for the **Tomahawk chess engine**
+
+Tomahawk itself is maintained separately
+
+See `docs/` for more info.
 
 </div>
 
-Tomahawk combines alpha-beta search with incrementally updated neural network evaluation. It communicates through the Universal Chess Interface (UCI), so a chess GUI or bot controller can supply positions and request moves.
+---
 
-Development, strength testing, tuning, and analytics are supported by the companion **San Jacinto** framework.
+# Overview
 
-## Documentation
+San Jacinto provides the infrastructure surrounding engine development:
+- SPRT strength testing
+- tournament automation
+- SPSA parameter tuning
+- NNUE tooling
+- game/search telemetry processing
+- database pipelines
+- analytics dashboards
 
-| Guide | What it covers |
-|---|---|
-| [Engine architecture](docs/engine.md) | Startup, ownership, UCI commands, board state, and the complete search lifecycle |
-| [Position and move generation](docs/position.md) | Board encoding, attacks, legal moves, reversible state, hashing, and special moves |
-| [Search](docs/search.md) | Iterative deepening, negamax, quiescence, pruning, reductions, move ordering, and the transposition table |
-| [NNUE architecture](docs/nnue.md) | Color-coded v1/v2/v3 network diagrams, feature encoding, layers, and inference |
-| [Network weights](nnue/weights/readme.md) | Bundled nets, compatibility, and profiles for training data and test results |
-| [Validation and experimentation](docs/validation.md) | Correctness contracts, diagnostic coverage, performance measurements, and reproducible strength tests |
-| [Build modes and statistics](docs/stats.md) | PROD/DEV/DEBUG differences, search counters, timing, log files, and debugging facilities |
-| [UCI command reference](docs/uci.md) | Every protocol/diagnostic command, search arguments, options, and current support limits |
+---
 
-## Features
+## Repository Relationship
 
-- **Search:** iterative deepening, aspiration windows, Principal Variation Search (PVS), and quiescence search.
-- **Selective search:** late move reductions, null move pruning, reverse futility pruning, late quiet-move futility pruning, and quiescence SEE/delta pruning.
-- **Move ordering:** transposition-table and previous-PV moves, promotions, Static Exchange Evaluation (SEE), killers, and history scores; later root iterations reuse scores and node counts.
-- **Evaluation:** dual-perspective NNUE accumulators, mirrored king buckets, material-based output buckets, and a `1024 -> 16 -> 32 -> 1` big net with pairwise multiplication and SCReLU. Windows uses the explicit SIMD inference path; other builds use scalar evaluation.
-- **Position handling:** bitboards, sliding-piece attack tables, reversible moves, Zobrist hashing, and repetition tracking.
-- **Development:** perft, NNUE/SEE diagnostics, and detailed search, timing, and game telemetry in `DEV` builds.
-
-Search currently uses one worker. Some advertised or parsed UCI controls are incomplete; see [current implementation boundaries](docs/engine.md#current-implementation-boundaries).
-
-## Build
-
-The checked-in CMake configuration requires **CMake 3.16+** and **C++17**. Its compiler flags target GCC/Clang-style toolchains; on Windows, use MinGW-w64. A native MSVC build is not configured consistently yet.
-
-From the repository root, with CMake, Ninja, and a compiler on `PATH`:
-
-```sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
+```
+projects/
+│
+├── tomahawk/
+│   └── Chess engine (C++ / UCI)
+│
+└── san-jacinto/
+    └── Development framework (this repo)
 ```
 
-For MinGW Makefiles, replace `-G Ninja` with `-G "MinGW Makefiles"`. Use a separate build directory when changing generators. When invoking Windows CMake from PowerShell, use a native Windows Ninja executable; MSYS `/usr/bin/ninja` uses shell path handling that can break compiler invocation. MinGW Makefiles works with `mingw32-make`.
+San Jacinto communicates with Tomahawk through the UCI protocol and manages the experimentation lifecycle around engine development.
 
-The default executable is `engines/prod/tomahawk` (`tomahawk.exe` on Windows). Set `-DVERSION=1.2.3` during configuration to change the non-Debug executable name and compiled version. Other build configurations write to `engines/dev/`.
+---
 
-| Configuration | Purpose |
-|---|---|
-| `Release` / `PROD` | Optimized production build; `Release` is the default |
-| `DEV` | Optimized build with detailed search telemetry |
-| `Debug` | Symbols and `DEBUG` NNUE feature/debug facilities; mode for board/Zobrist investigation |
-| `Profile` | Optimized build with symbols, frame pointers, and `DEBUG` bookkeeping |
+# Features
 
-All four build modes explicitly request AVX2 and BMI2. Release/PROD, DEV, and Profile additionally use `-march=native`, which can enable instructions beyond that baseline. Build and run on a compatible x86 CPU; these are not portable binaries for arbitrary AVX2 machines. The removed Asan and RelWithDebInfo modes no longer have dedicated project configuration.
+## Data Pipeline
 
-See [build modes and statistics](docs/stats.md) for exact compile definitions, instrumentation, and log behavior. `DEV` collects detailed stats; `Debug` enables correctness-debugging facilities. The CMake spelling is `Debug`, not `DEBUG`.
+Located in:
 
-### Runtime assets
-
-CMake embeds the source checkout path as `PROJECT_ROOT`. The default network is:
-
-```text
-nnue/weights/1024_16_32_pairmul_screlu_T60T70Farseer_filtered.bin
+```
+data/
 ```
 
-Keep the checkout available when running the executable. Copying only the executable does not bundle its weights. The configured opening-book path is `bin/Titans.bin`; that file is not tracked in this repository. Logging defaults to `../san-jacinto/logs/test_logs` relative to the source root, and startup creates that directory. See the [weights guide](nnue/weights/readme.md#loading-and-compatibility) for the current network-loading paths.
+The data pipeline handles engine statistics, game records, and analytics.
 
-## Run
+Collected stats include: fail high rates, re-search rates, function call times, node counts, etc.
 
-Launch `./engines/prod/tomahawk` on Linux or `.\engines\prod\tomahawk.exe` in PowerShell. Enter:
+OLTP --> OLAP framework with raw database collection of engine log files, and analytics database for advanced stats
 
-```text
-uci
-isready
-setoption name Hash value 128
-ucinewgame
-position startpos moves e2e4 e7e5
-go depth 6
+Structure:
+
+```
+data/
+├── databases/
+├── etl/
+├── transforms/
+├── dashboard/
+├── openings/
+├── tests/
+└── ratings.py
 ```
 
-Wait for `bestmove`, then enter `quit` to exit. A GUI can send the same protocol commands. For clock-based play, it supplies `wtime`, `btime`, increments, and optionally `movestogo` with `go`.
+### Database schema (new statistics, old data)
 
-For a move-generation check, start a fresh process or reset the position before running:
+The raw database's schema is the base tables in `data/databases/init_raw_db.py` plus every migration in `data/databases/migrate_schema.py`. Each migration is applied once and recorded in the database's `schema_migrations` table.
 
-```text
-position startpos
-perft 4
+- **Applied automatically:** every program that writes to the database applies pending migrations first, so an existing database is upgraded in place. `init_raw_db` applies all of them, and re-applies whatever is missing of applied ones, so `--delete` followed by init gives the full current schema.
+- **Old rows are kept:** migrations only add tables, indexes and nullable columns (and rename `nmp_fail`, which became `nmp_failhigh` in July 2026, keeping its data). A column added later is NULL for earlier rows: "not measured", not 0. The same holds for a field an engine doesn't log.
+- **Nothing logged is lost:** a log field without a column yet, or with a value that doesn't fit its column's type, is kept in the row's `extra_fields` (JSON) and reported. Adding the column later fills it from there.
+- **Safe:** each migration is one transaction, and concurrent programs apply it once. `--delete` drops everything in one transaction. Programs wait up to 30 minutes for another program's write (e.g. an SPRT loading telemetry) instead of failing with "database is locked".
+
+To collect a new engine statistic (e.g. correction history):
+
+1. Log it from Tomahawk. Name it `x` per search, `itdepth_x` per iteration, `treedepth_x` per tree depth.
+2. Add a `Migration` to `MIGRATIONS` in `migrate_schema.py` that adds column `x` (nullable) to `searches`, `searches_by_iteration` or `searches_by_tree_depth`. Type it like the values: `INTEGER` for counts, `REAL` for ratios.
+
+That's all:
+- **ETL:** stores each log field in the column of the same name.
+- **Analytics:** `load_analytics` adds new raw columns to its tables.
+- **Views:** to chart the statistic on the dashboard, add it to the views (`data/transforms/sql`).
+- **Rules:** never add columns to init's `CREATE TABLE`s, and never edit an applied migration; add a new one. `data/tests` checks this (`python -m unittest discover -s data/tests -t .`).
+
+Before the first program run on an existing database, back it up and preview the upgrade:
+
+```
+python -m data.databases.migrate_schema --dry-run
 ```
 
-The starting-position depth-4 leaf count is **197,281**. Other diagnostics include `nnue_eval`, `see <square>`, `print_board`, and `clear_tt`; `nnue_test` is Windows-only. See the [complete UCI command reference](docs/uci.md) for syntax, build availability, and unsupported placeholders.
+The dry run also lists the tables and columns your database has beyond the current schema. These are kept as they are; a column of an older layout may hold data under a name that has since changed.
 
-## Repository layout
+### Engine identity (build provenance)
 
-```text
-src/             UCI, engine, search, board, move generation, opening book
-include/         Interfaces, search data, hashing, limits, and telemetry
-nnue/            Network definition, accumulators, inference, and SIMD
-nnue/weights/    Bundled network files and their profiles
-docs/            Architecture, position, search, NNUE, and validation guides
-bin/             Logos and local runtime assets/configuration
-engines/         Build outputs and local reference engines (ignored by Git)
-CMakeLists.txt   Build configuration
+An engine is its build, not its version string: `engine_key` = binary SHA-256 + the SHA-256 of the NNUE net it loads (Tomahawk reads its net from a file, so the same binary with another net is another engine). `release.py` writes `<exe>.build.json` next to every build: git commit, branch, dirty flag and diff hash, build type, compiler and flags. Registration stores all of it in `engines`, and every runner (SPRT, tournament, STS, perft) looks engines up by key.
+
+- **Hand-built binaries:** `python -m data.etl.provenance stamp <exe> --source ../tomahawk --build-type DEV`. Inspect one with `... show <exe>`.
+- **SPRT telemetry:** each run's engines log into their own folders (`<logroot>/<run>/<side>`), so search and game logs belong to the right build even when both report the same version. Loaded logs are deleted. If loading fails, the logs are kept; load them later with `python -m tests.sprt --retry-ingest <logroot>/<run>`.
+- **Old rows:** a row registered before keys existed is adopted by `<version>.exe` (`<version>` on Linux/macOS; how `release.py` names builds) if it is the only such row. Other builds reporting that version get their own row.
+- **Public snapshot:** `data/databases/export_public.py` publishes the hashes and the commit, but not file paths, branch names or the provenance record. Folders are also stripped from paths in engine descriptions.
+
+### Ratings
+
+`data/ratings.py` fits logistic Elo (maximum likelihood, 95% intervals) over every stored rating game per category. Categories are the time-control classes, fixed limits such as `nodes=5000`, and multi-threaded play as its own class, e.g. `blitz@T4`. Every pairing result goes into `match_results`; each fit lands in `rating_fits`/`ratings` and is mirrored into `engine_ratings` for the dashboard. SPRT results are recorded but left out unless `--include-sprt`, because early stopping inflates the Elo of tests that pass.
+
+- **Scale:** each fit keeps the previous fit's anchor engine and Elo, so ratings stay comparable from run to run. A category's first fit anchors the oldest engine of the largest connected group, at its current rating (else 1500). `--anchor ID` moves the anchor to another engine, also at its current rating unless `--anchor-elo` is given.
+- **Unconnected engines:** engines with no games linking them to that group are fitted in their own component and are not mirrored.
+
+```
+python -m data.ratings show --tc blitz          # version history: Elo, +-, gain over the previous version
+python -m data.ratings fit [--tc ...] [--include-sprt] [--anchor ID]
+python -m data.ratings backfill-sprt            # copy existing SPRT rows into match_results
 ```
 
-## Development
+---
 
-Use position and perft checks for move-generation changes, NNUE diagnostics for evaluation changes, and controlled strength tests for search changes. San Jacinto supports the broader workflow: automated games and SPRT testing, SPSA/CMA-ES tuning, telemetry processing, and analysis. Record the engine revision, network checksum, build configuration, and test conditions together so results remain reproducible.
+## Testing
+
+Located in:
+
+```
+tests/
+├── bench.py
+├── compare.py
+├── perft.py
+├── sprt.py          SPRT (pentanomial); --tc / --time / --depth / --nodes, --threads, --tb
+├── smp.py           Lazy SMP strength: Elo of 2 vs 1, 4 vs 2 threads ... (fixed length)
+├── tournament.py    progression test: gauntlet vs earlier versions, global rating refit
+├── mistakes.py      mine past mistakes (Stockfish-verified) into an EPD suite
+├── sts.py           EPD suites (STS, the mistake suite); --depth / --time / --nodes
+└── release.py       build, register, test, rate and tune a new version in one command
+```
+
+- **Fixed nodes** (`--nodes N` in sprt, sts and both tuners) take hardware speed out of eval/NNUE tests. Every engine is checked first: one that ignores `go nodes` is refused, because the test would silently measure something else. Tomahawk has no node limit yet; `SearchLimits` only knows time and depth.
+- **SMP:** `python -m tests.smp --engine X --threads 1 2 4 --tc 10+0.1 --pairs 200` measures what threads are worth. To check that a search patch still helps with threads, run the SPRT multi-threaded: `--threads 4`, or `release.py --sprt_threads 1 4` to gate at both.
+- **Progression** (`tests/tournament.py`, `release.py --tournament`):
+  - The candidate plays a fixed number of opening pairs against each earlier version; `--round-robin` also plays the opponents against each other.
+  - Each pairing is reported as pentanomial Elo with a 95% interval, and the global fit is redone with the new games.
+  - Opponents are one build of each earlier version: the Prod build if there is one, else the newest. The candidate's own version and scratch versions (dev, test, debug) are skipped.
+  - Builds are found by their registered binary (and net) hash, so a rebuilt exe is never mistaken for an old version.
+  - Each run's PGN is kept in `logs/tournament_results/`.
+- **Mistakes:** `python -m tests.mistakes [--player Candidate]` mines the SPRT and tournament PGNs:
+  - Stockfish screens every move and verifies candidates at depth with MultiPV. A position is kept when the played move loses at least 15 win% points.
+  - The position goes into `logs/mistakes/mistakes.epd`, with `bm` = the good moves and `am` = the mistake.
+  - Replay it per version with `python -m tests.sts --sts logs/mistakes/mistakes.epd --depth 10` to track how many past mistakes are fixed.
+  - Re-running over the same logs adds nothing.
+- **Tablebase adjudication:** `--tb DIR` (sprt, tournament, smp, release). Only the WDL files are needed: the 3-4-5 piece set is 378 MB (https://tablebase.lichess.ovh/tables/standard/3-4-5-wdl/). A folder without `*.rtbw` files is refused before the run.
+
+### CPU pinning
+
+Games (SPRT, tournaments, tuning) are pinned to CPUs by default. Each concurrent game gets its own slot: `--threads` CPUs (default 1), taken in the order Tomahawk's `Affinity` code reports on `uci` (P-cores first, SMT siblings last). Both engines of a game take turns on the same CPUs. Inside the slot, the engine places its own search threads.
+
+- **One thread:** fastchess `-use-affinity` pins each game to one CPU.
+- **More threads** (SPRT `--threads N`): each slot runs its own fastchess process, started on the slot's CPUs, and both engines inherit them. fastchess 1.8.2 can only pin one CPU per game.
+- **Unpinned:** builds that don't report their CPU order (they pin themselves at startup) and macOS run unpinned. `--no-pin` turns pinning off. Unpinned multi-threaded SPRT games run the engines with `Affinity=none`.
+- **Concurrent runs** pin to different CPUs: each run claims its CPUs with a lock file under the (per-user) temp folder, held by the run's Python process until the run ends. If you kill only `python.exe`, also end its `fastchess` processes; they keep running and would share CPUs with the next run. To give a run a specific part of the machine, start it restricted to those CPUs, e.g. `start /affinity F0 python -m tests.sprt ...` or `taskset -c 4-7 python -m tests.sprt ...`.
+
+See [utils/cpu_slots.py](utils/cpu_slots.py).
+
+---
+
+## Tuning
+
+Located in:
+
+```
+tuning/
+```
+
+Contains tools for automated parameter optimization.
+
+Current tools:
+
+- SPSA tuning
+- CMA-ES tuning
+- UCI parameter generation
+
+Used for optimizing search parameters such as:
+- LMR reductions
+- pruning margins
+- evaluation constants
+- move ordering parameters
+
+---
+
+# NNUE Tools
+
+Located in:
+
+```
+nnue/
+```
+
+Contains utilities for:
+
+- NNUE data preparation
+- training workflows
+- network management: `nnue/registry.py` ties each net (by file hash) to its training run, validation loss and the Elo of the engines that load it
+
+```
+python -m nnue.registry scan                     # register every checkpoint (train.py does this after training)
+python -m nnue.registry report --tc blitz        # val loss vs Elo per net, with Spearman/Pearson correlation
+python -m nnue.registry match --engine X --net-a A.bin --net-b B.bin --nodes 50000 --pairs 200
+```
+
+`match` loads two nets into one binary through a UCI option, so the engine must declare it on plain `uci`. Tomahawk declares `nnue_weight_file` only for `uci_dev`, and it takes a name rather than a path.
+
+The trained networks are consumed by Tomahawk.
+
+---
+
+# Requirements
+
+## Python
+
+Recommended:
+
+```
+Python >= 3.11
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+## External Dependencies
+
+Required:
+
+- Tomahawk engine repository
+- [fastchess](https://github.com/Disservin/fastchess) (game manager for SPRT, tournaments, and tuning)
+- Stockfish (for comparison/testing, and to verify mined mistakes: `--stockfish` or `STOCKFISH_PATH`)
+- Python data stack
+- Optional: Syzygy WDL tablebases for adjudication (`--tb`)
+
+fastchess is the `libs/fastchess` submodule. The scripts expect the binary at
+`libs/fastchess/fastchess.exe` (`libs/fastchess/fastchess` elsewhere); override it with `--fastchess`.
+Build it with `make -j` in `libs/fastchess` (MSYS2/MinGW on Windows), or place a
+[release binary](https://github.com/Disservin/fastchess/releases) there:
+
+```bash
+git submodule update --init libs/fastchess
+make -C libs/fastchess -j
+```
+
+---
+
+# Configuration
+
+San Jacinto expects Tomahawk to exist alongside this repository:
+
+```
+projects/
+├── tomahawk/
+└── san-jacinto/
+```
+
+Engine paths should be configured through the project configuration system.
+
+---
+
+# Development Workflow
+
+Typical engine development cycle:
+
+```
+Modify Tomahawk
+        |
+        v
+Build engine
+        |
+        v
+Run San Jacinto tests
+        |
+        v
+SPRT / Tournament validation
+        |
+        v
+Analyze results
+        |
+        v
+Tune parameters
+        |
+        v
+      Repeat
+```
+
+---
+
+<div align="center">
+
+Built with Python and a lot of data.
+
+</div>
