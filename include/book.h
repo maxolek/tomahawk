@@ -3,7 +3,7 @@
 #include <unordered_map>
 #include <string>
 #include <cstdint>
-#include "stats.h"
+#include "search_stats.h"
 #include "timer.h"
 
 struct BookEntry {

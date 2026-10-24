@@ -80,11 +80,6 @@ public:
     int MoveFlag() const { return moveValue >> 12; }
 
     void PrintMove() const { 
-        int start = StartSquare();
-        int target = TargetSquare();
-        int promo_int = PromotionPieceType(); 
-        char promo_char = (promo_int > 0) ? piece_label(promo_int) : '.';
-
         std::cout
             << square_to_algebraic(StartSquare())
             << "->"
@@ -127,7 +122,7 @@ inline std::ostream& operator<<(std::ostream& os, const Move& m) {
     if (m.IsNull()) {
         os << "null";
     } else {
-        os << m.uci(); // or you could do start->target if you want
+        os << m.uci();
     }
     return os;
 }

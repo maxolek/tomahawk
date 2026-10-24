@@ -2,7 +2,7 @@
 // functions for move execution, undo, bitboards, Zobrist hashing, and FEN handling.
 
 // Includes
-#include <PrecomputedMoveData.h>
+#include <precomp.h>
 #include <move.h>
 #include <gamestate.h>
 #include <board.h>
@@ -125,18 +125,6 @@ void Board::MakeMove(Move move) {
 
     zobrist_hash ^= zobristCastlingHash(old_castling);
     zobrist_hash ^= zobristCastlingHash(currentGameState.castlingRights);
-
-    if ((pieceBitboards[king] & colorBitboards[0]) == 0 || (pieceBitboards[king] & colorBitboards[1]) == 0) {
-        std::cerr << "\n\nKING MISSING after unmake: ";
-        move.PrintMove();
-        std::cerr << "captured_piece: " << captured_piece << " move_color=" << move_color << "\n\n";
-        print_board(); 
-        std::cerr << "\nmoves: " << allGameMoves.size() << "\n\n" << std::endl;
-        for (int i = allGameMoves.size() - 1; i >= 0; i--) {
-            allGameMoves[i].PrintMove();
-        }
-        assert(false);
-    }
 
     is_in_check = inCheck(false);
     plyCount++;
@@ -275,8 +263,8 @@ void Board::MakeNullMove() {
     // track history for NMP-tree TT
     // wont plague regular TT since STM is flipped so hash's will never match
     gameStateHistory.push_back(currentGameState);
-    hash_history[zobrist_hash]++;
-    zobrist_history.push_back(zobrist_hash);
+    //hash_history[zobrist_hash]++;
+    //zobrist_history.push_back(zobrist_hash);
     allGameMoves.push_back(Move::NullMove());
     //gameStateHistory.push_back(currentGameState);
 
@@ -288,13 +276,13 @@ void Board::UnmakeNullMove() {
     //ScopedTimer timer(T_UNMAKENULLMOVE);
 
     // undo hash history
-    auto it = hash_history.find(zobrist_hash);
-    if (it != hash_history.end()) {
-        it->second--;
-       if (it->second <= 0)
-            hash_history.erase(it);
-    }
-    zobrist_history.pop_back();
+    //auto it = hash_history.find(zobrist_hash);
+    //if (it != hash_history.end()) {
+    //    it->second--;
+    //   if (it->second <= 0)
+    //        hash_history.erase(it);
+    //}
+    //zobrist_history.pop_back();
 
     // flip STM back
     zobrist_hash ^= zobrist_side_to_move;
@@ -439,10 +427,10 @@ bool Board::isThreefold() {
     int count = 0;
 
     // Number of positions to look back: since last irreversible move
-    int lookback = std::min<int>(currentGameState.fiftyMoveCounter + 1, zobrist_history.size());
+    size_t lookback = std::min(static_cast<size_t>(currentGameState.fiftyMoveCounter) + 1, zobrist_history.size());
 
     // Iterate backwards over just those positions
-    for (int i = static_cast<int>(zobrist_history.size()) - lookback; i < static_cast<int>(zobrist_history.size()); ++i) {
+    for (size_t i = zobrist_history.size() - lookback; i < zobrist_history.size(); ++i) {
         if (zobrist_history[i] == zobrist_hash)
             count++;
         if (count >= 3)
@@ -483,6 +471,18 @@ bool Board::inCheck(bool init) {
     if (ortho_sliders & Magics::rookAttacks(king_sq, occ)) return true;
 
     return false;
+}
+
+bool Board::givesCheck(Move move) {
+    // due to discovered checks, promotions, etc
+    // we cannot just use bitboards to detect the check
+    // so just make/unmake the move (fast enoough, but could use some nps testing)
+
+    MakeMove(move);
+    bool in_check = inCheck(true);
+    UnmakeMove(move);
+
+    return in_check;
 }
 
 // ------------------------------------------------------------

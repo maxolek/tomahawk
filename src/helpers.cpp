@@ -95,6 +95,7 @@ int direction_index(int start_square, int target_square) {
                     return 3;
                     break;
             }
+            return -1;
         case 0:
             switch (file_dir) {
                 case -1: 
@@ -107,6 +108,7 @@ int direction_index(int start_square, int target_square) {
                     return 2;
                     break;
             }
+            return -1;
         case 1:
             switch (file_dir) {
                 case -1: 
@@ -120,6 +122,7 @@ int direction_index(int start_square, int target_square) {
                     break;
                 break;
             }
+            return -1;
         default:
             return -1;
             break;
@@ -250,7 +253,7 @@ int piece_int(char piece) {
 
 // Converts a square index (0-63) to algebraic notation (a1-h8)
 std::string square_to_algebraic(int square) {
-    char file = 'a' + (square % 8); // Get file (column)
+    char file = static_cast<char>('a' + (square % 8)); // Get file (column)
     char rank = static_cast<char>('1' + (square / 8)); // Get rank (row)
     return std::string(1, file) + rank; // Combine file and rank
 }

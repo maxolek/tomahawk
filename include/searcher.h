@@ -4,22 +4,24 @@
 #include "engine.h"
 #include "search_limits.h"
 #include "helpers.h"
-#include "stats.h"
+#include "search_stats.h"
 #include "timer.h"
-#include "NNUE.h"
+#include "nnue.h"
 #include "tt.h"
-#include "moveGenerator.h"
+#include "movegen.h"
 
 class Engine;
-class Evaluator;
 class NNUE;
 class MoveGenerator;
 
 // ---- search constants ----
 struct SearchParams {
-    // delta / SEE
-    int   DELTA_PRUNE_THRESHOLD  = 1'000;
-    int   SEE_PRUNE_THRESHOLD    = -50;
+    // pruning
+    int   DELTA_PRUNE_THRESHOLD             = 1'000;
+    int   SEE_PRUNE_THRESHOLD               = -50;
+    int   REVERSE_FUTILITY_PRUNE_THRESHOLD  = 150;
+    int   FUTILITY_PRUNE_MARGIN             = 100;
+    int   FUTILITY_PRUNE_MOVE_THRESHOLD     = 5;
     // aspiration windows
     int   ASPIRATION_WINDOW      = 50;
     int   ASPIRATION_START_DEPTH = 6;
@@ -61,15 +63,18 @@ struct RootMoveScores {
     int QUIET_BASE     = 0;
 };
 
+constexpr int pieceValues[6] = {100, 300, 330, 500, 900, 10000}; 
+
+
 class Searcher {
 public:
     // ------------------------------- VARS -------------------------------
+    long long repetition_taint_hits = 0;
 
     // Object-owned state
     //Engine& engine;
     MoveGenerator& movegen; // = engine.movegen
     Board& board; //= engine.search_board;
-    Evaluator& eval; // = engine.evaluator;
     NNUE& nnue; // = engine.nnue;
     TranspositionTable& tt; // = engine.tt
 
@@ -78,9 +83,9 @@ public:
     MoveScores move_scores;
 
     // iteration-local eval table
-    int node_count_table[1 << 16];   // keyed by Move.Value()
+    uint64_t node_count_table[1 << 16];   // keyed by Move.Value()
     void store_last_node_counts(const SearchResult& res); // fill node_count_table
-    int get_node_count(Move m) const; // retrieve from table
+    uint64_t get_node_count(Move m) const; // retrieve from table
 
     bool stop = false;
 
@@ -92,10 +97,9 @@ public:
 
     // ------------------------------- FUNCS -------------------------------
 
-    Searcher(Board& b, MoveGenerator& mg, Evaluator& ev, NNUE& nn, TranspositionTable& _tt) 
-        : board(b), 
-          movegen(mg),
-          eval(ev), 
+    Searcher(Board& b, MoveGenerator& mg, NNUE& nn, TranspositionTable& _tt) 
+        : movegen(mg),
+          board(b),
           nnue(nn),
           tt(_tt) {}
 
@@ -124,7 +128,8 @@ public:
         std::vector<Move>& previousPV,
         SearchLimits& limits,
         int ply,
-        bool can_nmp
+        bool can_nmp,
+        bool& tainted
     );
 
     int quiescence(
@@ -134,7 +139,8 @@ public:
         SearchLimits& limits,
         int ply,
         int depth,
-        int search_depth
+        int search_depth,
+        bool& tainted
     );
 
     // ------------------------------- Ordering & Scoring -------------------------------
@@ -154,7 +160,7 @@ public:
 
     void orderedMoves(
         Move moves[MAX_MOVES],
-        size_t count,
+        int count,
         const Board& board,
         int ply,
         const Move ttMove,
@@ -183,12 +189,31 @@ public:
         int ply
     );
 
+    // ------------------------------- Static Exchange Evaluation (SEE) -------------------------------
+
+    int SEE(
+        const Board& board,
+        const Move& move
+    );
+
+    U64 attackersTo(
+        const Board& board,
+        int square,
+        bool white,
+        U64 occ
+    );
+
+
     // -------------------------------- Search Reduction Parameters ----------------------------
     int R_lmr(
         int depth, 
         int move_order
     );
 
+    // ----- nnue helpers -----
+    bool update_kings(const bool& is_king_move, const Move& move);
+    void perform_move(Board& board, const Move& move, const bool update_kings);
+    void perform_unmove(Board& board, const Move& move, const bool update_kings);
 };
 
 #endif // SEARCHER_H

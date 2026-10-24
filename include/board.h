@@ -4,7 +4,7 @@
 #include "move.h"
 #include "gamestate.h"
 #include "zobrist.h"
-#include "stats.h"
+#include "search_stats.h"
 #include "timer.h"
 //#include "NNUE.h"
 
@@ -67,6 +67,7 @@ public:
     // ==================== Constructors ====================
     Board(std::string _fen = STARTPOS_FEN); ///< Initialize from FEN
     Board(const Board& other); // deep copy search->game boards
+    Board& operator=(const Board& other) = default;
 
     // ==================== Move execution ====================
     void MakeMove(Move move = false);               ///< Apply a move and update board state
@@ -94,7 +95,8 @@ public:
     bool isThreefold();
 
     // ==================== Board state checks ====================
-    bool inCheck(bool init); ///< True if the given side is in check
+    bool inCheck(bool init); ///< True if the side-to-move is in check
+    bool givesCheck(Move move); // see if a move will give a check if played
 
     // ==================== FEN handling ====================
     void setFromFEN(std::string _fen); ///< Initialize board from FEN

@@ -4,16 +4,15 @@
 
 #include "board.h"
 #include "magics.h"
-#include "moveGenerator.h"
-#include "evaluator.h"
+#include "movegen.h"
 #include "searcher.h"
 #include "tt.h"
 #include "search_limits.h"
 #include "logging.h"
-#include "stats.h"
+#include "search_stats.h"
 #include "timer.h"
-#include "game_log.h"
-#include "NNUE.h"
+#include "game_stats.h"
+#include "nnue.h"
 #include "book.h"
 
 #include <filesystem>
@@ -68,15 +67,16 @@ struct SearchSettings {
 };
 
 struct EngineOptions {
-    int  MOVE_OVERHEAD_MS = 30;
+    int  MOVE_OVERHEAD_MS = 10;
     int  MAX_THREADS      = 1;
-    int  HASH_SIZE_MB     = 512;
+    int  HASH_SIZE_MB     = 512; // use higher int range incase multi-gb TT is tried (unlikely)
     bool PONDERING        = false;
     bool UCI_SHOW_WDL     = false;
 
-    fs::path opening_pst_path  = fs::path(PROJECT_ROOT) / "bin/pst/pst_opening.txt";
-    fs::path endgame_pst_path  = fs::path(PROJECT_ROOT) / "bin/pst/pst_endgame.txt";
-    fs::path nnue_weight_path  = fs::path(PROJECT_ROOT) / "bin/nnue_wgts/768_128x2.bin";
+    // big      net : 1024_16_32_pairmul_screlu  
+    // small    net : output_buckets_25wdl_1000  
+    // original net : 768_128x
+    fs::path nnue_weight_path  = fs::path(PROJECT_ROOT) / "nnue/weights/cirr_filt_0wdl_LR_001_000435_600batches-1200.bin"; // 1024_16_32_pairmul_screlu  output_buckets_25wdl_1000  768_128x
     fs::path opening_book_path = fs::path(PROJECT_ROOT) / "bin/Titans.bin";
     fs::path syzygy_path       = fs::path(PROJECT_ROOT);
 };
@@ -106,7 +106,6 @@ public:
     // search + eval
     std::unique_ptr<Searcher> searcher;
     NNUE nnue; 
-    Evaluator evaluator;                // preload PST tables, eval
     TranspositionTable tt; // outside searcher for future multi-thread
 
     // boards
@@ -144,6 +143,7 @@ public:
     void computeSearchTime(const SearchSettings& settings); // defines the settings for it_dp
     //  Result
     void sendBestMove(Move bestMove, bool eval = false, bool ponder = false); // output of it_dp
+    void sendSearchInfo(SearchResult result); // nodes, time, depth, eval, pv, etc (info string)
 
     // --- Games ---
     void newGame();
@@ -153,15 +153,15 @@ public:
     // --- Results ---
     bool isCheckmate();
     bool isStalemate();
-    bool isThreefold();
+    //bool isThreefold();
 
     // --- Tests ---
     uint64_t perft(int depth);
     void perftPrint(int depth); // same as perft but print instead of return
     void perftDivide(int depth);
     void SEETest(int capture_square);
-    void staticEvalTest();
     void nnueEvalTest();
+    void nnueSIMDTest();
     void moveOrderingTest(int depth);
 
     // --- Config ---

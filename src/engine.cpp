@@ -23,10 +23,8 @@ Engine::Engine() {
     tt.clear();
 
     nnue.load(engine_options.nnue_weight_path);
-    evaluator.loadOpeningPST(engine_options.opening_pst_path);
-    evaluator.loadEndgamePST(engine_options.endgame_pst_path);
-
-    searcher = std::make_unique<Searcher>(search_board, *movegen, evaluator, nnue, tt);
+    //nnue.loadSmall(engine_options.nnue_weight_path);
+    searcher = std::make_unique<Searcher>(search_board, *movegen, nnue, tt);
 
     book.load(engine_options.opening_book_path);
 
@@ -45,7 +43,6 @@ void Engine::clearState() {
     search_depth = 0;
     time_left[0] = time_left[1] = 0;
     increment[0] = increment[1] = 0;
-    //evaluator = Evaluator(&precomp);
     //stats = SearchStats();
     g_stats = SearchStats();
     tt.clear();
@@ -109,7 +106,7 @@ void Engine::setOption(const std::string& name, const std::string& value) {
         std::cout << "info string set aspiration_start_depth = " << searcher->params.ASPIRATION_START_DEPTH << std::endl;
     }
     else if (name == "aspiration_research_scale") {
-        searcher->params.ASPIRATION_RESEARCH_SCALE = std::stoi(value);
+        searcher->params.ASPIRATION_RESEARCH_SCALE = std::stof(value);
         std::cout << "info string set aspiration_research_scale = " << searcher->params.ASPIRATION_RESEARCH_SCALE << std::endl;
     }
     else if (name == "draw_eval") {
@@ -133,34 +130,19 @@ void Engine::setOption(const std::string& name, const std::string& value) {
         std::cout << "info string set lmr_depth_threshold = " << searcher->params.LMR_DEPTH_THRESHOLD << std::endl;
     }
     else if (name == "r_lmr_const") {
-        searcher->params.R_LMR_CONST = std::stof(value)/100.000;
+        searcher->params.R_LMR_CONST = std::stof(value)/100.0f;
         std::cout << "info string set r_lmr_const = " << static_cast<int>(100*searcher->params.R_LMR_CONST) << std::endl;
     }
     else if (name == "r_lmr_denom") {
-        searcher->params.R_LMR_DENOM = std::stof(value)/100.000;
+        searcher->params.R_LMR_DENOM = std::stof(value)/100.0f;
         std::cout << "info string set r_lmr_denom = " << static_cast<int>(100*searcher->params.R_LMR_DENOM) << std::endl;
     }
 
     // -------- books / paths --------
-    else if (name == "opening_pst_file") {
-        engine_options.opening_pst_path = PROJECT_ROOT / fs::path("bin") / fs::path(value + ".txt");
-        if(evaluator.loadEndgamePST(engine_options.opening_pst_path)) {
-            std::cout << "info string OpeningPST loaded successfully: " << engine_options.opening_pst_path << std::endl;
-        } else {
-            std::cout << "info string Failed to load OpeningPST: " << engine_options.opening_pst_path << std::endl;
-        }
-    }
-    else if (name == "endgame_pst_file") {
-        engine_options.endgame_pst_path = PROJECT_ROOT / fs::path("bin") / fs::path(value + ".txt");
-        if(evaluator.loadEndgamePST(engine_options.endgame_pst_path)) {
-            std::cout << "info string EndgamePST loaded successfully: " << engine_options.endgame_pst_path << std::endl;
-        } else {
-            std::cout << "info string Failed to load EndgamePST: " << engine_options.endgame_pst_path << std::endl;
-        }
-    }
     else if (name == "nnue_weight_file") {
         engine_options.nnue_weight_path = PROJECT_ROOT / fs::path("bin/nnue_wgts") / fs::path(value + ".bin");
         if(nnue.load(engine_options.nnue_weight_path)) {
+        //if(nnue.loadSmall(engine_options.nnue_weight_path)) {
             std::cout << "info string NNUE loaded successfully: " << engine_options.nnue_weight_path << std::endl;
         } else {
             std::cout << "info string Failed to load NNUE: " << engine_options.nnue_weight_path << std::endl;
@@ -218,7 +200,6 @@ void Engine::setPosition(const std::string& fen,
     for (const auto& moveStr : moveStrs) {
 
         if (moveStr == "null" || moveStr == "NULL" || moveStr == "Null") {
-            Move m = Move::NullMove();
             game_board.MakeMove();
             ply++;
             continue;
@@ -290,34 +271,34 @@ void Engine::setPosition(const std::string& fen,
 // -- Search Control --
 // --------------------
 
-void Engine::computeSearchTime(const SearchSettings& settings) {
+void Engine::computeSearchTime(const SearchSettings& search_settings) {
     if (g_run_context.is_new_game) {
-        g_gamelog.wtime = settings.wtime; 
-        g_gamelog.btime = settings.btime; 
-        g_gamelog.winc = settings.winc; 
-        g_gamelog.binc = settings.binc; 
-        g_gamelog.movestogo = settings.movestogo;
-        g_gamelog.depth = settings.depth;
-        g_gamelog.nodes = settings.nodes;
-        g_gamelog.movetime = settings.movetime;
+        g_gamelog.wtime = search_settings.wtime;
+        g_gamelog.btime = search_settings.btime;
+        g_gamelog.winc = search_settings.winc;
+        g_gamelog.binc = search_settings.binc;
+        g_gamelog.movestogo = search_settings.movestogo;
+        g_gamelog.depth = search_settings.depth;
+        g_gamelog.nodes = search_settings.nodes;
+        g_gamelog.movetime = search_settings.movetime;
         g_run_context.is_new_game = false;
     }
 
-    int movesToGo = settings.movestogo > 0 ? settings.movestogo : 20;
+    int movesToGo = search_settings.movestogo > 0 ? search_settings.movestogo : 20;
 
     // hard coded time/depth
-    if (settings.movetime > 0 || settings.depth > 0) {
+    if (search_settings.movetime > 0 || search_settings.depth > 0) {
         limits = SearchLimits(
-            settings.movetime - engine_options.MOVE_OVERHEAD_MS,
-            settings.depth
+            search_settings.movetime - engine_options.MOVE_OVERHEAD_MS,
+            search_settings.depth
         );
         return;
     }
 
     // game clock
-    int side = game_board.is_white_move ? 0 : 1;
-    int myTime = (side == 0 ? settings.wtime : settings.btime);
-    int myInc  = (side == 0 ? settings.winc  : settings.binc);
+    int side_index = game_board.is_white_move ? 0 : 1;
+    int myTime = (side_index == 0 ? search_settings.wtime : search_settings.btime);
+    int myInc  = (side_index == 0 ? search_settings.winc  : search_settings.binc);
 
     // compute function
     double aggressiveness = 1.0;
@@ -334,7 +315,8 @@ void Engine::computeSearchTime(const SearchSettings& settings) {
 
 void Engine::startSearch() {
     // set nnue
-    nnue.build_accumulators(search_board);
+    //nnue.build_accumulators(search_board);
+    nnue.build_halfka_accumulators(search_board);
 
     // book probe
     if (!engine_options.opening_book_path.empty()) {
@@ -375,9 +357,7 @@ void Engine::startSearch() {
     // stats tracking
     auto start_time = std::chrono::steady_clock::now();
     g_run_context.search_uuid = generate_uuid();
-    #ifdef DEV 
-        resetSearchStats();  
-    #endif
+    resetSearchStats();  
     
     // --- generate first moves once ---
     Move first_moves[MAX_MOVES];
@@ -393,16 +373,13 @@ void Engine::startSearch() {
     //sendBestMove(bestMove);
 
     // finalize cumulative stats
-    g_stats.time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    g_stats.time_ms = (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - start_time).count();
+    g_stats.principal_variation = result.best_line.line;
     #ifdef DEV
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now() - start_time).count();
         g_stats.game_ply = ply;
-        //g_stats.nps = elapsed > 0 ? (1000.0 * g_stats.nodes / elapsed) : 0.0;
         g_stats.eval = result.eval;
         g_stats.move = result.bestMove;
-        g_stats.principal_variation = result.best_line.line;
 
         //g_stats.ebf = pow(double(g_stats.nodes) / 1.0, 1.0 / g_stats.maxDepth); // rough estimate
         //g_stats.qratio = double(g_stats.qnodes) / g_stats.nodes;
@@ -438,12 +415,27 @@ void Engine::sendBestMove(Move best, bool eval, bool ponder) {
     std::cout << std::endl;
 
     game_board.MakeMove(best);
+    search_board.MakeMove(best);
     game_over = checkGameEnd();
 
     if (mode == EngineMode::GAME) {trackGame();}
 
     //resetSearchStats();
     Logging::logUCIout(best.uci());
+}
+
+void Engine::sendSearchInfo(SearchResult result) {
+    std::cout << "info";
+    std::cout << " depth " << g_stats.max_completed_depth;
+    std::cout << " qdepth " << g_stats.max_qdepth;
+    std::cout << " nodes " << g_stats.nodes;
+    std::cout << " time " << g_stats.time_ms;
+    std::cout << " score cp " << result.eval;
+    std::cout << " pv";
+    for (const auto& move : result.best_line.line) {
+        std::cout << " " << move.uci();
+    }
+    std::cout << std::endl;
 }
 
 
@@ -461,7 +453,7 @@ void Engine::newGame() {
     tracker.lastPositionHash = 0;
     tracker.active = true;
 
-    if (Logging::log_dir == Logging::DEFAULT_LOG_DIR) Logging::setLogDir(Logging::project_root / "logs/game_logs");
+    if (Logging::log_dir == Logging::DEFAULT_LOG_DIR) Logging::setLogDir(Logging::san_jacinto_logs / "game_logs");
     g_gamelog = GameLog{};
     g_gamelog.startFEN = game_board.getBoardFEN();
 
@@ -556,8 +548,8 @@ void Engine::apply_config_file(const fs::path& path) {
     if (auto* v = get("r_nmp"))                    searcher->params.R_NMP                    = std::stoi(*v);
     if (auto* v = get("r_lmr_const"))              searcher->params.R_LMR_CONST              = std::stof(*v);
     if (auto* v = get("r_lmr_denom"))              searcher->params.R_LMR_DENOM              = std::stof(*v);
-    if (auto* v = get("lmr_move_order_threshold")) searcher->params.LMR_MOVE_ORDER_THRESHOLD              = std::stof(*v);
-    if (auto* v = get("lmr_depth_threshold"))      searcher->params.LMR_DEPTH_THRESHOLD              = std::stof(*v);
+    if (auto* v = get("lmr_move_order_threshold")) searcher->params.LMR_MOVE_ORDER_THRESHOLD              = std::stoi(*v);
+    if (auto* v = get("lmr_depth_threshold"))      searcher->params.LMR_DEPTH_THRESHOLD              = std::stoi(*v);
 
     // EngineOptions
     if (auto* v = get("move_overhead_ms")) engine_options.MOVE_OVERHEAD_MS= std::stoi(*v);
@@ -585,14 +577,6 @@ void Engine::create_config_file(std::string config_name) {
     }
 
     auto b = [](bool v) -> std::string { return v ? "true" : "false"; };
-
-    // helper: write a relative path (strip PROJECT_ROOT prefix if present)
-    auto rel = [](const fs::path& p) -> std::string {
-        const fs::path root = fs::path(PROJECT_ROOT);
-        std::error_code ec;
-        fs::path r = fs::relative(p, root, ec);
-        return (!ec && !r.empty()) ? r.generic_string() : p.generic_string();
-    };
 
     f << "# =========================================================\n"
       << "# " << fs::path(config_name).stem().string() << " Engine Configuration\n"
@@ -699,42 +683,67 @@ void Engine::SEETest(int capture_square) {
         Move m = movegen->moves[i];
         // check if capture (otherwise will incl checks and other qsearch stuff)
         if (m.TargetSquare() == capture_square) {
-            int see = evaluator.SEE(search_board, m);
+            int see = searcher->SEE(search_board, m);
             std::cout << "SEE (" << m.uci() << ") = " << see << std::endl;
         }
     }
 }
 
-void Engine::staticEvalTest() {
-    // Compute opening and endgame reports
-    TaperedEvalReport report = evaluator.Evaluate(search_board, evaluator.PST_opening);
-
-    // For clarity, also compute endgame separately
-    TaperedEvalReport endgame_report = evaluator.Evaluate(search_board, evaluator.PST_endgame);
-
-    // Merge opening/endgame into one tapered report
-    report.opening = report.opening;
-    report.endgame = endgame_report.opening; // endgame components
-    int phase = evaluator.gamePhase(search_board);
-    report.computeTapered(phase, evalWeights);
-
-    std::cout << "=== Static Evaluation ===\n";
-    std::cout << "Phase: " << phase << ") / 256\n";
-    report.printDetailed(evalWeights);
-}
-
-
 void Engine::nnueEvalTest() {
-    nnue.build_accumulators(search_board);
-    int eval = nnue.evaluate(search_board.is_white_move);
+    //nnue.build_accumulators(search_board);
+    nnue.build_halfka_accumulators(search_board);
 
-    if (!search_board.is_white_move) eval = -eval;
+    int eval = nnue.evaluate(search_board.is_white_move, (search_board.colorBitboards[0] | search_board.colorBitboards[1]));
+    int simd_eval = nnue.eval_simd(search_board.is_white_move, (search_board.colorBitboards[0] | search_board.colorBitboards[1]));
 
     std::cout << "=== NNUE Evaluation ===\n";
     std::cout << "NNUE Eval: " << eval << " centipawns\n";
+    std::cout << "SIMD Eval: " << simd_eval << " centipawns\n";
 }
 
-void Engine::moveOrderingTest(int depth) {
+void Engine::nnueSIMDTest() {
+    std::ifstream file("../san-jacinto/bin/test_positions/perft.epd");
+
+    if (!file) {
+        std::cerr << "Could not open perft positions file\n";
+        return;
+    }
+
+    std::string line;
+    int position = 0;
+    int errors = 0;
+
+    while (std::getline(file, line)) {
+        if (line.empty())
+            continue;
+
+        // FEN is everything before the first ';'
+        std::string fen = line.substr(0, line.find(';'));
+        Board b = Board(fen);
+        ++position;
+
+        nnue.build_halfka_accumulators(b);
+        int scalar = nnue.evaluate(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
+        int simd = nnue.eval_simd(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
+
+        if (scalar != simd) {
+            ++errors;
+            std::cerr << "\n[SIMD MISMATCH]"
+                      << "\nPosition: " << position
+                      << "\nFEN:      " << fen
+                      << "\nScalar:   " << scalar
+                      << "\nSIMD:     " << simd
+                      << "\n";
+        }
+    }
+
+    std::cout << "\nSIMD NNUE TEST COMPLETE\n"
+              << "Positions: " << position
+              << "\nErrors:    " << errors
+              << "\n";
+}
+
+void Engine::moveOrderingTest(int /*depth*/) {
     std::cout << "=== Move Ordering Test ===\n";
 
     // Generate moves at root
@@ -768,4 +777,3 @@ void Engine::moveOrderingTest(int depth) {
         std::cout << move.uci() << ": " << score << "\n";
     }
 }
-

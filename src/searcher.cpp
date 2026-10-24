@@ -16,7 +16,7 @@ void Searcher::updatePV(std::vector<Move>& pv, const Move& move, const std::vect
 }
 
 // leaf node pruning
-bool Searcher::shouldPrune(Move& move, int standPat, int alpha, int search_depth, int ply) {
+bool Searcher::shouldPrune(Move& move, int standPat, int alpha, [[maybe_unused]] int search_depth, [[maybe_unused]] int ply) {
     const int captured = board.getCapturedPiece(move.TargetSquare());
     const bool is_promo = move.IsPromotion();
     const bool in_check = board.is_in_check;
@@ -27,7 +27,7 @@ bool Searcher::shouldPrune(Move& move, int standPat, int alpha, int search_depth
         && !in_check
     ) {
         // see pruning (bad captures ... excl promo and checks)
-        int seeGain = eval.SEE(board, move);
+        int seeGain = SEE(board, move);
         if (seeGain < params.SEE_PRUNE_THRESHOLD) {
             #ifdef DEV
                 STATS_SEE_PRUNE(search_depth, ply);
@@ -48,6 +48,175 @@ bool Searcher::shouldPrune(Move& move, int standPat, int alpha, int search_depth
 }
 
 // ============================================================================
+// Static Exchange Evaluation (SEE) 
+// ============================================================================
+
+int Searcher::SEE(const Board& boardRef, const Move& move) {
+    #ifdef DEV
+        ScopedTimer timer(T_SEE);
+    #endif
+
+    int sq = move.TargetSquare();
+    int from = move.StartSquare();
+
+    int moverPt12 = boardRef.sqToPiece[from];
+    int capturedPt12 = boardRef.sqToPiece[sq];
+
+    if (moverPt12 == -1 || capturedPt12 == -1) return 0; // sanity: only captures
+
+    auto pieceType  = [](int pt12){ return pt12 % 6; };
+    auto pieceColor = [](int pt12){ return pt12 / 6; };
+    auto valOf      = [&](int pt){ return pieceValues[pt]; };
+
+    int moverColor = pieceColor(moverPt12);
+
+    // Gain stack
+    int gain[64];
+    int d = 0;
+    gain[d++] = valOf(pieceType(capturedPt12));
+
+    // Side to move for recapture
+    int stm = 1 - moverColor;
+
+    // Used attackers mask
+    U64 used = (1ULL << from);
+
+    // Track current target piece
+    int targetPt12 = moverPt12;
+
+    // Compute attackers for a side
+    auto computeAttackers = [&](int side) -> U64 {
+        U64 attackers = 0ULL;
+        U64 occ = boardRef.colorBitboards[0] | boardRef.colorBitboards[1];
+        U64 color_bb = boardRef.colorBitboards[side];
+
+        for (int pt = 0; pt < 6; ++pt) {
+            U64 bb = boardRef.pieceBitboards[pt] & color_bb & ~used;
+            while (bb) {
+                int sqFrom = getLSB(bb);
+                bb &= bb - 1;
+
+                if (sqFrom < 0 || sqFrom >= 64) continue; 
+                int pt12 = boardRef.sqToPiece[sqFrom];
+                if (pt12 == -1) continue;
+
+                switch (pt) {
+                    case pawn:
+                        if (PrecomputedMoveData::fullPawnAttacks[sq][1 - side] & (1ULL << sqFrom))
+                            attackers |= 1ULL << sqFrom;
+                        break;
+                    case knight:
+                        if (PrecomputedMoveData::blankKnightAttacks[sqFrom] & (1ULL << sq))
+                            attackers |= 1ULL << sqFrom;
+                        break;
+                    case bishop:
+                        if (Magics::bishopAttacks(sqFrom, occ) & (1ULL << sq))
+                            attackers |= 1ULL << sqFrom;
+                        break;
+                    case rook:
+                        if (Magics::rookAttacks(sqFrom, occ) & (1ULL << sq))
+                            attackers |= 1ULL << sqFrom;
+                        break;
+                    case queen:
+                        if ((Magics::bishopAttacks(sqFrom, occ) | Magics::rookAttacks(sqFrom, occ)) & (1ULL << sq))
+                            attackers |= 1ULL << sqFrom;
+                        break;
+                    case king:
+                        if (PrecomputedMoveData::blankKingAttacks[sqFrom] & (1ULL << sq))
+                            attackers |= 1ULL << sqFrom;
+                        break;
+                }
+            }
+        }
+
+        return attackers;
+    };
+
+    U64 attackers[2] = {computeAttackers(0), computeAttackers(1)};
+
+    auto pickLVA = [&](int side, int& fromOut) -> bool {
+        U64 cand = attackers[side] & ~used;
+        if (!cand) return false;
+
+        int bestSq = -1;
+        int bestVal = INT_MAX;
+        while (cand) {
+            int sqFrom = getLSB(cand);
+            cand &= cand - 1;
+            if (sqFrom < 0 || sqFrom >= 64) continue;
+
+            int pt12 = boardRef.sqToPiece[sqFrom];
+            if (pt12 == -1) continue;
+
+            int v = valOf(pieceType(pt12));
+            if (v < bestVal) { bestVal = v; bestSq = sqFrom; }
+        }
+
+        if (bestSq == -1) return false;
+        fromOut = bestSq;
+        return true;
+    };
+
+    while (true) {
+        int fromAtt = -1;
+        if (!pickLVA(stm, fromAtt)) break;
+
+        int attackerPt12 = boardRef.sqToPiece[fromAtt];
+        if (attackerPt12 == -1) break;
+
+        int victimVal   = valOf(pieceType(targetPt12));
+
+        gain[d] = victimVal - gain[d-1]; // recapture
+        ++d;
+
+        used |= 1ULL << fromAtt;
+        targetPt12 = attackerPt12;
+
+        // recompute attackers for next side
+        attackers[0] = computeAttackers(0);
+        attackers[1] = computeAttackers(1);
+
+        stm ^= 1; // switch side
+    }
+
+    // Backtrack for conservative score
+    while (--d > 0) gain[d-1] = -std::max(gain[d], -gain[d-1]);
+
+    return gain[0];
+}
+
+
+U64 Searcher::attackersTo(const Board& boardRef, int sq, bool white, U64 occ) {
+    U64 attackers = 0ULL;
+    U64 color = white ? boardRef.colorBitboards[0] : boardRef.colorBitboards[1];
+
+    // Pawns
+    U64 pawns = boardRef.pieceBitboards[pawn] & color;
+    if (white) {
+        // Which white pawns can capture on sq? Check squares one rank below
+        // Use precomputed pawn attacks from white pawns
+        attackers |= pawns & PrecomputedMoveData::fullPawnAttacks[sq][0]; // 0 = white pawns
+    } else {
+        attackers |= pawns & PrecomputedMoveData::fullPawnAttacks[sq][1]; // 1 = black pawns
+    }
+
+    // Knights
+    attackers |= (color & boardRef.pieceBitboards[knight]) & PrecomputedMoveData::blankKnightAttacks[sq];
+
+    // Kings
+    attackers |= (color & boardRef.pieceBitboards[king]) & PrecomputedMoveData::blankKingAttacks[sq];
+
+    // Sliders
+    U64 bishop_sliders = (color & boardRef.pieceBitboards[bishop]) | (color & boardRef.pieceBitboards[queen]);
+    U64 rook_sliders   = (color & boardRef.pieceBitboards[rook])   | (color & boardRef.pieceBitboards[queen]);
+
+    attackers |= bishop_sliders & Magics::bishopAttacks(sq, occ);
+    attackers |= rook_sliders   & Magics::rookAttacks(sq, occ);
+
+    return attackers;
+}
+
+// ============================================================================
 // ROOT EVAL STORAGE
 // ============================================================================
 
@@ -61,7 +230,7 @@ void Searcher::store_last_node_counts(const SearchResult& res) {
     }
 }
 
-inline int Searcher::get_node_count(Move m) const {
+inline uint64_t Searcher::get_node_count(Move m) const {
     return node_count_table[m.Value()];
 }
 
@@ -71,7 +240,7 @@ inline int Searcher::get_node_count(Move m) const {
 // ============================================================================
 
 int Searcher::rootMoveScore(const Move& move, const Move& ttMove, const Move& pvMove) {
-    int score = 0;
+    int64_t score = 0;
 
     if (Move::SameMove(move, pvMove))
         score += root_scores.PV_BASE;
@@ -79,18 +248,19 @@ int Searcher::rootMoveScore(const Move& move, const Move& ttMove, const Move& pv
     if (Move::SameMove(move, ttMove))
         score += root_scores.TT_BASE;
 
-    score += get_node_count(move);
+    // Keep the ordering score representable even after very large searches.
+    score += static_cast<int>(std::min<uint64_t>(get_node_count(move), INT_MAX));
 
     if (move.IsPromotion())
         score += root_scores.PROMO_BASE;
 
-    int see_score = eval.SEE(board, move);
+    int see_score = SEE(board, move);
     if (see_score > 0)
         score += root_scores.GOOD_CAP_BASE;
     else 
         score += root_scores.BAD_CAP_BASE;
 
-    return score;
+    return static_cast<int>(std::min<int64_t>(score, INT_MAX));
 }
 
 int Searcher::moveScore(const Move& move, const Board& boardRef,
@@ -99,7 +269,7 @@ int Searcher::moveScore(const Move& move, const Board& boardRef,
 
     // TT + PV
     if (Move::SameMove(ttMove, move)) return move_scores.TT_BASE;
-    if (ply < (int)previousPV.size() && Move::SameMove(move, previousPV[ply])) return move_scores.PV_BASE;
+    if (ply < (int)previousPV.size() && Move::SameMove(move, previousPV[(size_t)ply])) return move_scores.PV_BASE;
 
     // promotions
     if (move.IsPromotion()) {
@@ -113,7 +283,7 @@ int Searcher::moveScore(const Move& move, const Board& boardRef,
         int captured = boardRef.getCapturedPiece(move.TargetSquare());
         seeScore = 0;
         if (captured != -1) {
-            seeScore = eval.SEE(boardRef, move);
+            seeScore = SEE(boardRef, move);
             return seeScore >= 0 ? move_scores.GOOD_CAP_BASE + seeScore + promoBonus
                                  : move_scores.BAD_CAP_BASE  + seeScore + promoBonus;
         }
@@ -124,7 +294,7 @@ int Searcher::moveScore(const Move& move, const Board& boardRef,
     int captured = boardRef.getCapturedPiece(move.TargetSquare());
     if (captured != -1) {
         // SEE
-        seeScore = eval.SEE(boardRef, move);
+        seeScore = SEE(boardRef, move);
         return seeScore >= 0 ? move_scores.GOOD_CAP_BASE + seeScore : move_scores.BAD_CAP_BASE + seeScore;
         // MVVLVA
         //int attacker = board.getMovedPiece(move.StartSquare());
@@ -143,31 +313,29 @@ int Searcher::moveScore(const Move& move, const Board& boardRef,
     return move_scores.QUIET_BASE + historyHeuristic[sidePiece][move.TargetSquare()] / 16;
 }
 
-void Searcher::orderedMoves(Move moves[MAX_MOVES], size_t count,
+void Searcher::orderedMoves(Move moves[MAX_MOVES], int count,
                             const Board& boardRef, int ply, 
                             const Move ttMove, const std::vector<Move>& previousPV) {
     
     #ifdef DEV
         ScopedTimer timer(T_SCORE_ORDER);
     #endif
-    U64 hash = boardRef.zobrist_hash;
-
     // sorting
     std::pair<int, Move> scored[MAX_MOVES];
-    for (size_t i = 0; i < count; ++i)
+    for (int i = 0; i < count; ++i)
         scored[i] = {moveScore(moves[i], boardRef, ply, ttMove, previousPV), moves[i]};
 
     std::sort(scored, scored + count,
               [](const auto& a, const auto& b) { return a.first > b.first; });
 
-    for (size_t i = 0; i < count; ++i) moves[i] = scored[i].second;
+    for (int i = 0; i < count; ++i) moves[i] = scored[i].second;
 }
 
 int Searcher::generateAndOrderMoves(Move moves[MAX_MOVES], int ply, const Move ttMove, const std::vector<Move>& previousPV) {
     int count = movegen.generateMoves(board, false); // the bool flag for captures-only or not — adapt if signature differs
     std::copy_n(movegen.moves, count, moves);
 
-    orderedMoves(moves, static_cast<size_t>(count), board, ply, ttMove, previousPV);
+    orderedMoves(moves, count, board, ply, ttMove, previousPV);
     
     return count;
 }
@@ -176,12 +344,14 @@ int Searcher::generateAndOrderMoves(Move moves[MAX_MOVES], int ply, const Move t
 // QUIESCENCE SEARCH
 // ============================================================================
 
-int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int ply, int depth, int search_depth) {
+int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int ply, int depth, int search_depth, bool& tainted) {
     if (limits.out_of_time()) return alpha;
+    tainted = false;
 
     // draw detection
-    if (board.isThreefold() || board.currentGameState.fiftyMoveCounter >= 50) {
+    if (board.isThreefold() || board.currentGameState.fiftyMoveCounter >= 100) {
         //tt.store(board.zobrist_hash, depth, ply, 0, EXACT, Move::NullMove());
+        //repetition_taint_hits++;
         return params.DRAW_EVAL;
     }
 
@@ -203,7 +373,9 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
 
     // Use incremental NNUE output (accumulators must be kept in sync)
     //boardallGameMoves.back().PrintMove();
-    int standPat = nnue.evaluate(board.is_white_move); //eval.taperedEval(board);
+    int standPat = nnue.eval_simd(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
+    //int standPat = nnue.eval_screlu_simd(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
+    //int standPat = nnue.evaluate(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
     if (standPat >= beta) return standPat;
     if (standPat > alpha) alpha = standPat;
 
@@ -226,23 +398,26 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
 
     int bestEval = standPat;
     Move bestMove = Move::NullMove();
+    bool is_king_move = false;
+    bool build_accums = false;
+    bool child_tainted = false;
 
     for (int i = 0; i < count; i++) {
         if (limits.out_of_time()) break;
 
         Move m = moves[i];
         if (shouldPrune(m, standPat, alpha, search_depth, ply)) continue;
+        is_king_move = board.getMovedPiece(m.StartSquare()) == king;
+        build_accums = update_kings(is_king_move, m);
 
         // Apply NNUE incremental update then board move
-        nnue.on_make_move(board, m);
-        board.MakeMove(m);
+        perform_move(board, m, build_accums);
 
         int score; PV childPV;
-        score = -quiescence(-beta, -alpha, childPV, limits, ply+1, depth, search_depth);
+        score = -quiescence(-beta, -alpha, childPV, limits, ply+1, depth, search_depth, child_tainted);
 
         // Undo board & NNUE (capture before must be reconstructed from states)
-        nnue.on_unmake_move(board, m);
-        board.UnmakeMove(m);
+        perform_unmove(board, m, build_accums);
 
         if (score >= beta) { 
             #ifdef DEV
@@ -255,6 +430,7 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
             bestMove = m;
             alpha = std::max(alpha, score);
             pv.set(m, childPV);
+            tainted = child_tainted;
         }
     }
 
@@ -271,8 +447,14 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
 
 int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                       std::vector<Move>& previousPV, SearchLimits& limits, int ply, 
-                      bool can_nmp) {
-
+                      bool can_nmp, bool& tainted) {
+    int static_eval = nnue.eval_simd(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
+    //int static_eval = nnue.eval_screlu_simd(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
+    //int static_eval = nnue.evaluate(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
+    int  f_prune = 0; // flag for futility pruning
+    bool is_king_move = false;
+    bool build_accums = false;
+    tainted = false;
     #ifdef DEV
         STATS_NODE(depth+ply, ply); // track node per depth
     #else 
@@ -282,13 +464,15 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
 
     // --- end of search conditions ---
 
-    if (board.isThreefold() || board.currentGameState.fiftyMoveCounter >= 50) {
+    if (board.isThreefold() || board.currentGameState.fiftyMoveCounter >= 100) {
         //tt.store(board.zobrist_hash, depth, ply, 0, EXACT, Move::NullMove());
+        //repetition_taint_hits++;
+        tainted = true;
         return params.DRAW_EVAL;
     }
 
     if (depth == 0) {
-        return quiescence(alpha, beta, pv, limits, ply, depth, ply);
+        return quiescence(alpha, beta, pv, limits, ply, depth, ply, tainted);
     }
 
     // --- TT probe ---
@@ -316,7 +500,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
             else if (ttEntry->flag == LOWERBOUND && ttScore >= beta)  return ttScore;
         }
     } 
-    
+
     // --- internal iterative deepening ---
     // no usable TT move, PV node, enough depth to bother
     // run reduced search to replace TT move
@@ -338,6 +522,29 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
     }
     */
 
+    // ---------------------------------------------------
+    // reverse futility pruning (aka static null move pruning)
+    // ---------------------------------------------------
+    // at pre-frontier nodes (2nd-parent of leaf node)
+    // skip the move loop if static eval > beta+margin
+    // similar to NMP but no search, just a fail-high
+    if (
+        depth < 3
+        && !(beta-alpha>1)
+        && !board.is_in_check
+        && beta < MATE_SCORE - 100
+    ) {
+        int eval_margin = depth * params.REVERSE_FUTILITY_PRUNE_THRESHOLD;
+
+        if (static_eval - eval_margin >= beta) {
+            #ifdef DEV 
+                STATS_RFP(depth+ply, ply);
+            #endif 
+            // padded score prevents overestimating unexpected tactical replies
+            return static_eval - eval_margin; 
+        }
+    }
+
     // -----------------------------
     // Null Move Pruning
     // -----------------------------
@@ -358,18 +565,19 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
             || board.pawn_endgame 
         )
         && 
-        // static eval > beta
-        (nnue.evaluate(board.is_white_move) > beta)
+        // static eval > beta (use cached if available)
+        (static_eval > beta)
     ) {
         #ifdef DEV
             ScopedTimer timer(T_NMP_SEARCH);
             STATS_NMP(depth+ply, ply);
         #endif
         PV emptyPV;
+        bool nmp_tainted = false;
 
         // null moves just change the side to move (and last-move cache)
         board.MakeNullMove();
-        int null_score = -negamax(depth - params.R_NMP, -beta, -(beta - 1), emptyPV, previousPV, limits, ply + 1, false);
+        int null_score = -negamax(depth - params.R_NMP, -beta, -(beta - 1), emptyPV, previousPV, limits, ply + 1, false, nmp_tainted);
         board.UnmakeNullMove();
 
         // null window around beta so if if null move fails high 
@@ -393,8 +601,29 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
 
     int _lmr_R = 0;
 
-    bool in_check, is_pawn_endgame, was_capture, is_capture;
     Move m; int score; PV childPV; PV emptyPV;
+    bool gives_check, is_capture;
+    bool child_tainted = false;
+
+    // current board state info
+    bool in_check = board.is_in_check;
+
+    /*
+    FUTILITY PRUNING  
+        not in check
+        not searching for a checkmate 
+        eval is below (alpha - margin)
+    it might  mean that searching non-tactical moves at  low depths    
+    is futile, so we set a flag allowing this pruning               
+     */
+    if (depth <= 3
+        && !(alpha-beta > 1)
+        && !in_check
+        && abs(alpha) < 9000
+        && (static_eval + (depth * params.FUTILITY_PRUNE_MARGIN) <= alpha)
+    )
+        f_prune = 1;
+    
 
     // --- move loop ---
 
@@ -403,17 +632,28 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
 
         m = moves[i];
 
-        // current board state info
-        in_check = board.is_in_check;
-        is_pawn_endgame = board.pawn_endgame;
-        was_capture = board.currentGameState.capturedPieceType != -1;
+        // future board state info
+        gives_check = board.givesCheck(m);
         is_capture = board.getCapturedPiece(m.TargetSquare()) != -1;
-
-        // Apply NNUE/update & board
-        nnue.on_make_move(board, m);
-        board.MakeMove(m);
+        is_king_move = board.getMovedPiece(m.StartSquare()) == king;
+        build_accums = update_kings(is_king_move, m);
         
         score = 0; childPV = {}; emptyPV = {};
+
+        // ------------------------------------
+        // Futility Pruning (aka late move pruning)
+        // ------------------------------------
+        if (f_prune                          // Applied at leaf and pre-leaf 
+            && i > params.FUTILITY_PRUNE_MOVE_THRESHOLD  // Only applied to late moves
+            && !is_capture                      // Never prune captures
+            && !m.IsPromotion()                 // Never prune promotions
+            && !gives_check             // Never prune moves that give check
+        ) {
+            #ifdef DEV
+                STATS_FUTILITY_PRUNE(depth+ply, ply);
+            #endif
+            continue; // Skip searching this unpromising quiet move!
+        }
 
         // -----------------------------
         // Late Move Reduction
@@ -441,6 +681,9 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         //    score = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply+1, true);
         //}
 
+        // Apply NNUE/update & board
+        perform_move(board, m, build_accums);
+
         // -----------------------------
         // principal variation search 
         // -----------------------------
@@ -450,11 +693,11 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         // else it fails low and is not going to be a better move than what has been found
         // null window searches are cheap and so the re-searches are worth the speedup
         if (i == 0) {
-            score = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true);
+            score = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true, child_tainted);
         } else {
             // null-window search
             // lmr =0 OR >0
-            score = -negamax(depth - 1 - _lmr_R, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true);
+            score = -negamax(depth - 1 - _lmr_R, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true, child_tainted);
 
             // if lmr_r > 0 then re-search with null-window at full depth
             // if score > alpha from this re-search,
@@ -465,7 +708,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                     STATS_PVS_RESEARCH(depth+ply, ply, 0);
                 #endif
                 emptyPV = {};
-                score = -negamax(depth - 1, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true);
+                score = -negamax(depth - 1, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true, child_tainted);
             }
 
             // if lmr_R == 0 then search with null window
@@ -477,18 +720,18 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                     STATS_PVS_RESEARCH(depth+ply, ply, 1);
                 #endif
                 emptyPV = {};
-                score = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true);
+                score = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true, child_tainted);
             }
         }
 
 
-        nnue.on_unmake_move(board, m);
-        board.UnmakeMove(m);
+        perform_unmove(board, m, build_accums);
 
         if (score > bestEval) {
             bestEval = score;
             bestMove = m;
             pv.set(m, childPV);
+            tainted = child_tainted;
         }
 
         alpha = std::max(alpha, bestEval);
@@ -510,17 +753,19 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
 
     // --- tt-store ---
 
-    BoundType flag = EXACT;
-    if (bestEval <= alphaOrig) { 
-        flag = UPPERBOUND; 
-        #ifdef DEV
-            STATS_FAILLOW(depth+ply, ply); 
-        #endif
-    }
-    else if (bestEval >= beta) { 
-        flag = LOWERBOUND; 
-    }
-    tt.store(board.zobrist_hash, depth, ply, bestEval, flag, bestMove);
+    //if (!tainted) {
+        BoundType flag = EXACT;
+        if (bestEval <= alphaOrig) { 
+            flag = UPPERBOUND; 
+            #ifdef DEV
+                STATS_FAILLOW(depth+ply, ply); 
+            #endif
+        }
+        else if (bestEval >= beta) { 
+            flag = LOWERBOUND; 
+        }
+        tt.store(board.zobrist_hash, depth, ply, bestEval, flag, bestMove);
+    //}
     //STATS_TT_STORE(depth+ply, ply);
 
     return bestEval;
@@ -535,13 +780,14 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
     int ply = 0; // root moves are depth=0, ply+1 in arg call makes made moves depth=1
     SearchResult result;
     int _lmr_R = 0;
-    int nodes_before = 0;
+    uint64_t nodes_before = 0;
     bool exact = false;
+    bool is_king_move = false;
+    bool build_accums = false;
+    bool _false = false;
 
     // current board state info
     bool in_check = board.is_in_check;
-    bool is_pawn_endgame = board.pawn_endgame;
-    bool was_capture = board.currentGameState.capturedPieceType != -1;
     bool is_capture;
 
     // --- aspiration search ---
@@ -581,8 +827,11 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                 auto move_start = std::chrono::steady_clock::now();
             #endif
 
-            nnue.on_make_move(board, m);
-            board.MakeMove(m);
+            // move type for nnue updates
+            is_king_move = board.getMovedPiece(m.StartSquare()) == king;
+            build_accums = update_kings(is_king_move, m);
+
+            perform_move(board, m, build_accums);
   
             PV childPV; PV emptyPV; // must be declared per root_move
 
@@ -609,12 +858,12 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
 
             // --- PVS ---
             if (i == 0) {
-                eval = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true);
+                eval = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true, _false);
                 exact = true;
             } else {
                 // null-window search
                 // lmr =0 OR >0
-                eval = -negamax(depth - 1 - _lmr_R, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true);
+                eval = -negamax(depth - 1 - _lmr_R, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true, _false);
 
                 // if lmr_r > 0 then re-search with null-window at full depth
                 // if score > alpha from this re-search,
@@ -625,7 +874,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                         STATS_PVS_RESEARCH(depth+ply, ply, 0); // lmr
                     #endif
                     emptyPV = {};
-                    eval = -negamax(depth - 1, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true);
+                    eval = -negamax(depth - 1, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true, _false);
                 }
 
                 // if lmr_R == 0 then search with null window
@@ -637,13 +886,12 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                         STATS_PVS_RESEARCH(depth+ply, ply, 2); // root full
                     #endif
                     emptyPV = {};
-                    eval = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true);
+                    eval = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true, _false);
                     exact = true;
                 }
             }
             
-            nnue.on_unmake_move(board, m);
-            board.UnmakeMove(m);
+            perform_unmove(board, m, build_accums);
 
             #ifdef DEV
                 auto move_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -676,7 +924,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                 #endif
                 alpha = aspAlpha - delta;
                 beta = aspBeta;
-                delta *= params.ASPIRATION_RESEARCH_SCALE;
+                delta = static_cast<int>(static_cast<float>(delta) * params.ASPIRATION_RESEARCH_SCALE);
                 continue;
             } else if (iter_result.eval >= aspBeta) {
                 #ifdef DEV
@@ -684,7 +932,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                 #endif
                 beta = aspBeta + delta;
                 alpha = aspAlpha;
-                delta *= params.ASPIRATION_RESEARCH_SCALE;
+                delta = static_cast<int>(static_cast<float>(delta) * params.ASPIRATION_RESEARCH_SCALE);
                 continue;
             }
         } 
@@ -704,14 +952,16 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
     std::fill(std::begin(node_count_table), std::end(node_count_table), 0);
 
     int depth = 1;
-    Move prevBest = Move::NullMove();
 
     // Build NNUE accumulators for root position
-    nnue.build_accumulators(board);
+    //nnue.build_accumulators(board);
+    nnue.build_halfka_accumulators(board);
 
     // --- iterative deepening loop ---
     while (!limits.should_stop(depth)) {
-        auto depth_start = std::chrono::steady_clock::now();
+        #ifdef DEV
+            auto depth_start = std::chrono::steady_clock::now();
+        #endif
         g_stats.max_depth = depth;
 
         // --- move ordering ---
@@ -772,10 +1022,9 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
         #ifdef DEV
             auto depth_end = std::chrono::steady_clock::now();
             //g_stats.max_completed_depth = depth;
-            g_stats.it_depth_eval[depth] = result.eval;
+            g_stats.it_depth_eval[depth] = result.eval; // stm perspective (+.5 white = -.5 black and vice versa)
             g_stats.it_depth_move[depth] = result.bestMove;
-            g_stats.it_depth_time_ms[depth] = std::chrono::duration<double, std::milli>(depth_end - depth_start).count();
-            //if (Move::SameMove(bestMove, prevBest)) g_stats.bestmoveStable++;
+            g_stats.it_depth_time_ms[depth] = std::chrono::duration_cast<std::chrono::milliseconds>(depth_end - depth_start).count();
 
             // log per-root-move timing data
             logRootMoves(result, depth);
@@ -789,6 +1038,10 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
         // still want fair eval for continuation metrics, etc.
         if ((move_count == 1) && (depth == 3)) break;
     }
+
+    // after the search call in your UCI "go" handler, before printing bestmove:
+    //std::cout << "info string rep taint hits: " << repetition_taint_hits << std::endl;
+    //repetition_taint_hits = 0;
 
     return last_result;
 }
@@ -808,4 +1061,54 @@ int Searcher::R_lmr(int depth, int move_order) {
     int reduction = static_cast<int>(params.R_LMR_CONST + (log_depth * log_order) / params.R_LMR_DENOM);
     
     return std::min(reduction, depth-2);
+}
+
+// ----- nnue helpers -----
+
+bool Searcher::update_kings(const bool& is_king_move, const Move& move) {
+    if (!is_king_move)
+        return false;
+
+    const int old_sq = move.StartSquare();
+    const int new_sq = move.TargetSquare();
+
+    // STM perspective
+    const bool stm_changed =
+        mirrored_bucket(old_sq) != mirrored_bucket(new_sq) ||
+        mirrored_flip(old_sq)   != mirrored_flip(new_sq);
+
+    // NTM perspective
+    const int old_ntm_sq = old_sq ^ 56;
+    const int new_ntm_sq = new_sq ^ 56;
+
+    const bool ntm_changed =
+        mirrored_bucket(old_ntm_sq) != mirrored_bucket(new_ntm_sq) ||
+        mirrored_flip(old_ntm_sq)   != mirrored_flip(new_ntm_sq);
+
+    return stm_changed || ntm_changed;
+}
+
+void Searcher::perform_move(Board& boardRef, const Move& move, const bool update_kings) {
+    // non-king move : incremental update (pre-board move)
+    // king move     : full rebuild (post-board move)
+    if (!update_kings) {
+        nnue.on_make_move_halfka(boardRef, move);
+        boardRef.MakeMove(move);
+    }
+    else {
+        boardRef.MakeMove(move);
+        nnue.build_halfka_accumulators(boardRef);
+    }
+}
+void Searcher::perform_unmove(Board& boardRef, const Move& move, const bool update_kings) {
+    // non-king move : incremental update (pre-board move)
+    // king move     : full rebuild (post-board move)
+    if (!update_kings) {
+        nnue.on_unmake_move_halfka(boardRef, move);
+        boardRef.UnmakeMove(move);
+    }
+    else {
+        boardRef.UnmakeMove(move);
+        nnue.build_halfka_accumulators(boardRef);
+    }
 }
