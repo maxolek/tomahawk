@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <iostream>
 
+// search statistics, one record per thread (declared in search_stats.h)
+thread_local SearchStats g_stats;
+
 // ============================================================================
 // Construction / small helpers
 // ============================================================================
@@ -341,6 +344,41 @@ int Searcher::generateAndOrderMoves(Move moves[MAX_MOVES], int ply, const Move t
 }
 
 // ============================================================================
+// NNUE evaluation / verification
+// ============================================================================
+
+// NNUE score of the current position from the side to move's perspective.
+inline int Searcher::evaluate_position() {
+    const U64 occ = board.colorBitboards[0] | board.colorBitboards[1];
+    const int eval = nnue.eval_simd(acc, board.is_white_move, occ);
+#ifdef TOMAHAWK_VERIFY_NNUE
+    const int reference = nnue.evaluate(acc, board.is_white_move, occ);
+    if (eval != reference) {
+        std::cout << "info string NNUE VERIFY FAILED: eval " << eval << " != reference " << reference
+                  << " fen " << board.getBoardFEN() << std::endl;
+        std::_Exit(3);
+    }
+#endif
+    return eval;
+}
+
+#ifdef TOMAHAWK_VERIFY_NNUE
+// Verification builds: the incrementally updated accumulators must equal a full
+// rebuild after every move made in search.
+void Searcher::verify_accumulators(const Move& move) {
+    const AccumulatorStack::Pair incremental = acc.entries[static_cast<size_t>(acc.ply)];
+    nnue.build_halfka_accumulators(acc, board);
+    const AccumulatorStack::Pair& full = acc.entries[static_cast<size_t>(acc.ply)];
+    if (std::memcmp(incremental.acc[0].vals, full.acc[0].vals, sizeof(full.acc[0].vals)) != 0 ||
+        std::memcmp(incremental.acc[1].vals, full.acc[1].vals, sizeof(full.acc[1].vals)) != 0) {
+        std::cout << "info string NNUE VERIFY FAILED: accumulator mismatch after " << move.uci()
+                  << " fen " << board.getBoardFEN() << std::endl;
+        std::_Exit(3);
+    }
+}
+#endif
+
+// ============================================================================
 // QUIESCENCE SEARCH
 // ============================================================================
 
@@ -359,21 +397,21 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
     // --- TT probe ---
     /*
     TTEntry* ttEntry = tt.probe(board.zobrist_hash);
-    if (ttEntry && ttEntry->key == board.zobrist_hash) {
+    if (ttEntry && ttEntry.key == board.zobrist_hash) {
         STATS_TT_HIT(search_depth, ply);
-        int ttScore = ttEntry->eval;
+        int ttScore = ttEntry.eval;
 
-        if (ttEntry->flag == EXACT) return ttEntry->eval;
-        else if (ttEntry->flag == UPPERBOUND && ttEntry->eval <= alpha) return ttScore;
-        else if (ttEntry->flag == LOWERBOUND && ttEntry->eval >= beta)  return ttScore;
+        if (ttEntry.flag == EXACT) return ttEntry.eval;
+        else if (ttEntry.flag == UPPERBOUND && ttEntry.eval <= alpha) return ttScore;
+        else if (ttEntry.flag == LOWERBOUND && ttEntry.eval >= beta)  return ttScore;
 
-        //if (alpha >= beta) return ttEntry->eval;
+        //if (alpha >= beta) return ttEntry.eval;
     }
     */
 
     // Use incremental NNUE output (accumulators must be kept in sync)
     //boardallGameMoves.back().PrintMove();
-    int standPat = nnue.eval_simd(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
+    int standPat = evaluate_position();
     //int standPat = nnue.eval_screlu_simd(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
     //int standPat = nnue.evaluate(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
     if (standPat >= beta) return standPat;
@@ -383,9 +421,8 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
 
     #ifdef DEV
         STATS_QNODE(search_depth, ply); 
-    #else 
-        g_stats.nodes++;
-    #endif
+    #endif 
+    nodes++;
 
     // generate only captures/promotions 
     int count = movegen.generateMoves(board, true);
@@ -448,18 +485,14 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
 int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                       std::vector<Move>& previousPV, SearchLimits& limits, int ply, 
                       bool can_nmp, bool& tainted) {
-    int static_eval = nnue.eval_simd(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
-    //int static_eval = nnue.eval_screlu_simd(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
-    //int static_eval = nnue.evaluate(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
     int  f_prune = 0; // flag for futility pruning
     bool is_king_move = false;
     bool build_accums = false;
     tainted = false;
     #ifdef DEV
         STATS_NODE(depth+ply, ply); // track node per depth
-    #else 
-        g_stats.nodes++;
-    #endif 
+    #endif
+    nodes++;
     if (limits.out_of_time()) return alpha;
 
     // --- end of search conditions ---
@@ -478,28 +511,32 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
     // --- TT probe ---
 
     int alphaOrig = alpha;
-    TTEntry* ttEntry = tt.probe(board.zobrist_hash);
+    TTEntry ttEntry = tt.probe(board.zobrist_hash);
     Move ttMove = Move::NullMove();
 
-    if (ttEntry && ttEntry->key == board.zobrist_hash) {
+    if (ttEntry.key == board.zobrist_hash) {
         #ifdef DEV
             STATS_TT_HIT(depth+ply, ply);
         #endif
         // grab move for move ordering
-        ttMove = ttEntry->bestMove;
+        ttMove = ttEntry.bestMove;
 
         // return score if tt-move's search depth is >= than current search depth
-        if (ttEntry->depth >= depth) {
+        if (ttEntry.depth >= depth) {
             #ifdef DEV 
                 STATS_TT_RETURN(depth+ply, ply);
             #endif 
 
-            int ttScore = ttEntry->eval;
-            if (ttEntry->flag == EXACT) return ttScore;
-            else if (ttEntry->flag == UPPERBOUND && ttScore <= alpha) return ttScore;
-            else if (ttEntry->flag == LOWERBOUND && ttScore >= beta)  return ttScore;
+            int ttScore = ttEntry.eval;
+            if (ttEntry.flag == EXACT) return ttScore;
+            else if (ttEntry.flag == UPPERBOUND && ttScore <= alpha) return ttScore;
+            else if (ttEntry.flag == LOWERBOUND && ttScore >= beta)  return ttScore;
         }
     } 
+
+    // static eval only feeds RFP, NMP, and futility pruning 
+    // all of which are disabled in check, so compute after TT cutoff and skip when in check
+    const int static_eval = board.is_in_check ? -MATE_SCORE : evaluate_position();
 
     // --- internal iterative deepening ---
     // no usable TT move, PV node, enough depth to bother
@@ -516,8 +553,8 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         negamax(depth * params.R_IID, alpha, beta, iidPV, previousPV, limits, ply, can_nmp);
         
         ttEntry = tt.probe(board.zobrist_hash);
-        if (ttEntry && ttEntry->key == board.zobrist_hash) {
-            ttMove = ttEntry->bestMove;
+        if (ttEntry && ttEntry.key == board.zobrist_hash) {
+            ttMove = ttEntry.bestMove;
         }
     }
     */
@@ -682,7 +719,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         //}
 
         // Apply NNUE/update & board
-        perform_move(board, m, build_accums);
+        perform_move(board, m, build_accums, depth >= 2);
 
         // -----------------------------
         // principal variation search 
@@ -707,7 +744,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                 #ifdef DEV
                     STATS_PVS_RESEARCH(depth+ply, ply, 0);
                 #endif
-                emptyPV = {};
+                emptyPV.clear();
                 score = -negamax(depth - 1, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true, child_tainted);
             }
 
@@ -719,7 +756,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                 #ifdef DEV
                     STATS_PVS_RESEARCH(depth+ply, ply, 1);
                 #endif
-                emptyPV = {};
+                emptyPV.clear();
                 score = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true, child_tainted);
             }
         }
@@ -750,6 +787,10 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
             break;
         }
     }
+
+    // An aborted search (time out, or a helper thread stopped by the main thread)
+    // has not established this value; keep it out of the shared TT.
+    if (limits.stopped) return bestEval;
 
     // --- tt-store ---
 
@@ -803,10 +844,9 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
     }
 
     #ifdef DEV
-        STATS_NODE(depth, ply);  
-    #else 
-        g_stats.nodes++;
-    #endif   
+        STATS_NODE(depth, ply);
+    #endif
+    nodes++; 
 
     // root move loop for both aspiration + regular search
     while (true) {
@@ -822,7 +862,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
 
             // root move stat tracking
             exact = false;
-            nodes_before = g_stats.nodes;
+            nodes_before = nodes;
             #ifdef DEV
                 auto move_start = std::chrono::steady_clock::now();
             #endif
@@ -831,7 +871,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
             is_king_move = board.getMovedPiece(m.StartSquare()) == king;
             build_accums = update_kings(is_king_move, m);
 
-            perform_move(board, m, build_accums);
+            perform_move(board, m, build_accums, depth >= 2);
   
             PV childPV; PV emptyPV; // must be declared per root_move
 
@@ -873,7 +913,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                     #ifdef DEV
                         STATS_PVS_RESEARCH(depth+ply, ply, 0); // lmr
                     #endif
-                    emptyPV = {};
+                    emptyPV.clear();
                     eval = -negamax(depth - 1, -(alpha+1), -alpha, emptyPV, previousPV, limits, ply + 1, true, _false);
                 }
 
@@ -885,7 +925,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                     #ifdef DEV
                         STATS_PVS_RESEARCH(depth+ply, ply, 2); // root full
                     #endif
-                    emptyPV = {};
+                    emptyPV.clear();
                     eval = -negamax(depth - 1, -beta, -alpha, childPV, previousPV, limits, ply + 1, true, _false);
                     exact = true;
                 }
@@ -905,7 +945,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
             iter_result.root_moves[i].move = m;
             iter_result.root_moves[i].eval = eval;
             iter_result.root_moves[i].exact = exact;
-            iter_result.root_moves[i].nodes = g_stats.nodes - nodes_before;
+            iter_result.root_moves[i].nodes = nodes - nodes_before;
             iter_result.root_count++;
 
             alpha = std::max(alpha, eval);
@@ -917,7 +957,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
         }
 
         // aspiration check
-        if (!limits.should_stop(depth, (int)g_stats.nodes) && (depth >= params.ASPIRATION_START_DEPTH)) {
+        if (!limits.should_stop(depth, (int)nodes) && (depth >= params.ASPIRATION_START_DEPTH)) {
             if (iter_result.eval <= aspAlpha) {
                 #ifdef DEV
                     STATS_ASPIRATION_FAILLOW(depth);
@@ -952,13 +992,14 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
     std::fill(std::begin(node_count_table), std::end(node_count_table), 0);
 
     int depth = 1;
+    nodes = 0;
 
     // Build NNUE accumulators for root position
     //nnue.build_accumulators(board);
-    nnue.build_halfka_accumulators(board);
-
+    nnue.reset_stack(acc, board);
+    
     // --- iterative deepening loop ---
-    while (!limits.should_stop(depth, (int)g_stats.nodes)) {
+    while (!limits.should_stop(depth, (int)nodes)) {
         #ifdef DEV
             auto depth_start = std::chrono::steady_clock::now();
         #endif
@@ -990,14 +1031,14 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
         } else {
             // first search: order like typical mid-tree ordering   
             // tt probe
-            TTEntry* ttEntry = tt.probe(board.zobrist_hash);
+            TTEntry ttEntry = tt.probe(board.zobrist_hash);
             Move ttMove = Move::NullMove();
 
-            if (ttEntry && ttEntry->key == board.zobrist_hash) {
+            if (ttEntry.key == board.zobrist_hash) {
                 #ifdef DEV
                     STATS_TT_HIT(depth, 0);
                 #endif
-                ttMove = ttEntry->bestMove;
+                ttMove = ttEntry.bestMove;
             }
             orderedMoves(first_moves, move_count, board, 0, ttMove, {});
 
@@ -1007,8 +1048,9 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
         }
 
         // --- search ---
+        std::vector<Move> previousPV = last_result.best_line.to_vector();
         result = search(last_result.root_moves, move_count, depth, limits,
-                                     last_result.best_line.line, last_result.eval);
+                            previousPV, last_result.eval);
 
 
         // --- store results ---
@@ -1088,27 +1130,28 @@ bool Searcher::update_kings(const bool& is_king_move, const Move& move) {
     return stm_changed || ntm_changed;
 }
 
-void Searcher::perform_move(Board& boardRef, const Move& move, const bool update_kings) {
-    // non-king move : incremental update (pre-board move)
-    // king move     : full rebuild (post-board move)
+void Searcher::perform_move(Board& boardRef, const Move& move, const bool update_kings, const bool prefetch_tt) {
+    // incremental update from the pre-move board; a king crossing into another
+    // bucket/mirror refreshes its own perspective from the post-move board.
+    // The child's TT entry is requested before the accumulator work so the
+    // memory access overlaps it.
     if (!update_kings) {
-        nnue.on_make_move_halfka(boardRef, move);
+        const NNUE::AccumulatorDelta delta = nnue.move_delta(boardRef, move);
         boardRef.MakeMove(move);
+        if (prefetch_tt) tt.prefetch(boardRef.zobrist_hash);
+        nnue.push_delta(acc, delta);
     }
     else {
         boardRef.MakeMove(move);
-        nnue.build_halfka_accumulators(boardRef);
+        if (prefetch_tt) tt.prefetch(boardRef.zobrist_hash);
+        nnue.push_king_move(acc, boardRef, move);
     }
+#ifdef TOMAHAWK_VERIFY_NNUE
+    verify_accumulators(move);
+#endif
 }
-void Searcher::perform_unmove(Board& boardRef, const Move& move, const bool update_kings) {
-    // non-king move : incremental update (pre-board move)
-    // king move     : full rebuild (post-board move)
-    if (!update_kings) {
-        nnue.on_unmake_move_halfka(boardRef, move);
-        boardRef.UnmakeMove(move);
-    }
-    else {
-        boardRef.UnmakeMove(move);
-        nnue.build_halfka_accumulators(boardRef);
-    }
+void Searcher::perform_unmove(Board& boardRef, const Move& move, [[maybe_unused]] const bool update_kings) {
+    // the previous ply's accumulators are still on the stack
+    acc.pop();
+    boardRef.UnmakeMove(move);
 }

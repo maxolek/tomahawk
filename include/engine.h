@@ -6,7 +6,7 @@
 #include "board.h"
 #include "magics.h"
 #include "movegen.h"
-#include "searcher.h"
+#include "threads.h"
 #include "tt.h"
 #include "search_limits.h"
 #include "logging.h"
@@ -52,6 +52,9 @@ struct GameTracker {
 
 // SEARCH
 
+// upper bound for the UCI Threads option
+inline constexpr int MAX_SEARCH_THREADS = 256;
+
 struct SearchSettings {
     int depth = 0;         // max depth (0 = no limit besides global engine limit)
     int nodes = 0;         // max nodes
@@ -73,6 +76,7 @@ struct EngineOptions {
     int  HASH_SIZE_MB     = 512; // use higher int range incase multi-gb TT is tried (unlikely)
     bool PONDERING        = false;
     bool UCI_SHOW_WDL     = false;
+    std::string CPU_AFFINITY = "auto"; // CPUs of the search threads: auto, none, or a list (affinity.h)
 
     // big      net : 1024_16_32_pairmul_screlu  
     // small    net : output_buckets_25wdl_1000  
@@ -108,6 +112,10 @@ public:
     std::unique_ptr<Searcher> searcher;
     NNUE nnue; 
     TranspositionTable tt; // outside searcher for future multi-thread
+    SearchThreadPool threads; // lazy SMP helper threads
+    affinity::Spec affinity_spec; // parsed engine_options.CPU_AFFINITY
+    std::string affinity_report; // last thread placement reported (printed when it changes)
+    int affinity_failures = 0;
 
     // boards
     Board game_board;        // main game board
@@ -142,6 +150,13 @@ public:
     void startSearch();
     void stopSearch();
     void computeSearchTime(const SearchSettings& settings); // defines the settings for it_dp
+    // threads
+    void setThreads(int count); // request `count` search threads (1..MAX_SEARCH_THREADS), then fitThreads()
+    bool fitThreads();          // run min(requested, threadLimit()) threads; true if that number changed
+    int searchThreads() const;  // search threads that run: the UCI thread + helpers
+    int threadLimit() const;    // one thread per available CPU (affinity::cpu_limit), at most MAX_SEARCH_THREADS
+    void reportThreads() const; // "info string set Threads = N", noting a capped request
+    bool setAffinity(const std::string& value); // Affinity option; an invalid value is reported and ignored
     //  Result
     void sendBestMove(Move bestMove, bool eval = false, bool ponder = false); // output of it_dp
     void sendSearchInfo(); // nodes, time, depth, eval, pv, etc (info string)

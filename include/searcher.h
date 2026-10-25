@@ -1,7 +1,6 @@
 #ifndef SEARCHER_H
 #define SEARCHER_H
 
-#include "engine.h"
 #include "search_limits.h"
 #include "helpers.h"
 #include "search_stats.h"
@@ -76,7 +75,14 @@ public:
     MoveGenerator& movegen; // = engine.movegen
     Board& board; //= engine.search_board;
     NNUE& nnue; // = engine.nnue;
+    AccumulatorStack& acc; // = engine.nnue->acc_state (this threads NNUE state)
     TranspositionTable& tt; // = engine.tt
+
+    // nodes searched by this searcher in the current search (drives root move ordering)
+    // engine sums them over threads for reporting
+    uint64_t nodes = 0;
+    // the main thread reports and logs; helper threads only feed the shared TT
+    bool is_main = true;
 
     SearchParams params;
     RootMoveScores root_scores;
@@ -97,10 +103,11 @@ public:
 
     // ------------------------------- FUNCS -------------------------------
 
-    Searcher(Board& b, MoveGenerator& mg, NNUE& nn, TranspositionTable& _tt) 
+    Searcher(Board& b, MoveGenerator& mg, NNUE& nn, AccumulatorStack& stack, TranspositionTable& _tt) 
         : movegen(mg),
           board(b),
           nnue(nn),
+          acc(stack),
           tt(_tt) {}
 
     // ------------------------------- Main Search -------------------------------
@@ -210,9 +217,17 @@ public:
         int move_order
     );
 
+   
     // ----- nnue helpers -----
+    // NNUE score of the current position (side to move's perspective)
+    int evaluate_position();
+#ifdef TOMAHAWK_VERIFY_NNUE
+    // verification builds: compare incremental accumulators with a full rebuild
+    void verify_accumulators(const Move& move);
+#endif
     bool update_kings(const bool& is_king_move, const Move& move);
-    void perform_move(Board& board, const Move& move, const bool update_kings);
+    // prefetch_tt: the child will probe the TT (it is a negamax node with depth > 0)
+    void perform_move(Board& board, const Move& move, const bool update_kings, const bool prefetch_tt = false);
     void perform_unmove(Board& board, const Move& move, const bool update_kings);
 };
 

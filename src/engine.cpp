@@ -1,5 +1,5 @@
 // engine_options.cpp
-#include <searcher.h>
+#include <engine.h>
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -24,7 +24,7 @@ Engine::Engine() {
 
     nnue.load(engine_options.nnue_weight_path);
     //nnue.loadSmall(engine_options.nnue_weight_path);
-    searcher = std::make_unique<Searcher>(search_board, *movegen, nnue, tt);
+    searcher = std::make_unique<Searcher>(search_board, *movegen, nnue, nnue.acc_state, tt);
 
     book.load(engine_options.opening_book_path);
 
@@ -71,10 +71,16 @@ void Engine::setOption(const std::string& name, const std::string& value) {
         std::cout << "info string set Hash = " << engine_options.HASH_SIZE_MB << std::endl;
     } 
     else if (name == "Threads") {
-        engine_options.MAX_THREADS = std::stoi(value);
-        // Apply threads to searcher
-        std::cout << "info string set Threads = " << engine_options.MAX_THREADS << std::endl;
+        setThreads(std::stoi(value));
+        reportThreads();
     } 
+    else if (name == "Affinity") {
+        if (setAffinity(value)) {
+            std::cout << "info string set Affinity = " << engine_options.CPU_AFFINITY << std::endl;
+            if (fitThreads()) reportThreads(); // the CPUs available changed
+        }
+    }
+
     else if (name == "Ponder") {
         engine_options.PONDERING = boolFromString(value);
         std::cout << "info string set Ponder = " << (engine_options.PONDERING ? "true" : "false") << std::endl;
@@ -286,11 +292,12 @@ void Engine::computeSearchTime(const SearchSettings& search_settings) {
 
     int movesToGo = search_settings.movestogo > 0 ? search_settings.movestogo : 20;
 
-    // hard coded time/depth
-    if (search_settings.movetime > 0 || search_settings.depth > 0) {
+    // hard coded time/depth/nodes limits
+    if (search_settings.movetime > 0 || search_settings.depth > 0 || search_settings.nodes > 0) {
         limits = SearchLimits(
             search_settings.movetime - engine_options.MOVE_OVERHEAD_MS,
-            search_settings.depth
+            search_settings.depth,
+            search_settings.nodes
         );
         return;
     }
@@ -365,17 +372,43 @@ void Engine::startSearch() {
     std::copy_n(movegen->moves, count, first_moves);
 
     // --- run search ---
+    // Helpers search the same root and share the TT; the main thread's result is used.
     computeSearchTime(settings);
+
+    // Thread placement is recomputed every search: it follows Threads, Affinity and
+    // the CPUs the process was given, which the program that started it may change.
+    // The thread count follows them too: never more search threads than CPUs.
+    if (fitThreads()) reportThreads();
+    const affinity::Plan placement = affinity::make_plan(affinity_spec, searchThreads());
+    std::string report = placement.summary;
+    if (!affinity::apply_to_current_thread(placement.threads[0])) {
+        affinity::apply_to_current_thread(placement.unpinned[0]);
+        report += " (the operating system refused to move the main search thread)";
+    }
+    if (report != affinity_report) {
+        affinity_report = report;
+        std::cout << "info string " << report << std::endl;
+    }
+
+    limits.stop_signal = &threads.stop_signal;
+    threads.start(search_board, limits, searcher->params, placement);
     result = searcher->iterativeDeepening(first_moves, count, limits);
+    threads.stop_and_wait();
+    if (threads.placement_failures() != affinity_failures) {
+        affinity_failures = threads.placement_failures();
+        if (affinity_failures)
+            std::cout << "info string affinity: the operating system refused to pin " << affinity_failures
+                      << " helper thread(s); they ran unpinned" << std::endl;
+    }
     bestMove = result.bestMove;
     bestEval = result.eval; 
-    pv_line = result.best_line.line;
+    pv_line = result.best_line.to_vector();
     //sendBestMove(bestMove);
 
     // finalize cumulative stats
     g_stats.time_ms = (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - start_time).count();
-    g_stats.principal_variation = result.best_line.line;
+    g_stats.principal_variation = pv_line;
     #ifdef DEV
         g_stats.game_ply = ply;
         g_stats.eval = result.eval;
@@ -392,11 +425,55 @@ void Engine::startSearch() {
     #endif 
 }
 
-
 void Engine::stopSearch() {
     limits.stopped = true;
+    threads.stop_signal.store(true, std::memory_order_relaxed);
     tracker.result = GameResult::ABORTED;
     tracker.reason = GameEndReason::NONE;
+}
+
+// -------------------
+// -- threads --
+// -------------------
+
+void Engine::setThreads(int count) {
+    engine_options.MAX_THREADS = std::clamp(count, 1, MAX_SEARCH_THREADS);
+    fitThreads();
+}
+
+bool Engine::fitThreads() {
+    const int target = std::min(engine_options.MAX_THREADS, threadLimit());
+    if (target == searchThreads()) return false;
+    threads.set_helpers(target - 1, nnue, tt);
+    return true;
+}
+
+int Engine::searchThreads() const {
+    return threads.helper_count() + 1;
+}
+
+int Engine::threadLimit() const {
+    return std::min(MAX_SEARCH_THREADS, affinity::cpu_limit(affinity_spec));
+}
+
+void Engine::reportThreads() const {
+    std::cout << "info string set Threads = " << searchThreads();
+    if (searchThreads() < engine_options.MAX_THREADS)
+        std::cout << " (requested " << engine_options.MAX_THREADS << "; at most one search thread per available cpu)";
+    std::cout << std::endl;
+}
+
+bool Engine::setAffinity(const std::string& value) {
+    affinity::Spec spec;
+    std::string error;
+    if (!affinity::parse(value, spec, error)) {
+        std::cout << "info string invalid Affinity value '" << value << "': " << error
+                  << "; keeping " << engine_options.CPU_AFFINITY << std::endl;
+        return false;
+    }
+    affinity_spec = spec;
+    engine_options.CPU_AFFINITY = affinity::to_string(spec);
+    return true;
 }
 
 void Engine::ponderHit() {
@@ -432,7 +509,7 @@ void Engine::sendSearchInfo() {
     std::cout << " time " << g_stats.time_ms;
     std::cout << " score cp " << result.eval;
     std::cout << " pv";
-    for (const auto& move : result.best_line.line) {
+    for (const auto& move : result.best_line.to_vector()) {
         std::cout << " " << move.uci();
     }
     std::cout << std::endl;
@@ -555,6 +632,7 @@ void Engine::apply_config_file(const fs::path& path) {
     if (auto* v = get("move_overhead_ms")) engine_options.MOVE_OVERHEAD_MS= std::stoi(*v);
     if (auto* v = get("hash_size_mb"))     engine_options.HASH_SIZE_MB     = std::stoi(*v);
     if (auto* v = get("max_threads"))     engine_options.MAX_THREADS     = std::stoi(*v);
+    if (auto* v = get("cpu_affinity"))        setAffinity(*v);
     if (auto* v = get("pondering"))        engine_options.PONDERING         = b(*v);
     if (auto* v = get("nnue_weight_path"))  engine_options.nnue_weight_path  = Logging::project_root / *v;
     if (auto* v = get("opening_book_path")) engine_options.opening_book_path = Logging::project_root / *v;
