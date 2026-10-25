@@ -181,19 +181,21 @@ void MoveGenerator::generateSlidingMoves(bool ours) {
     Move potential_move;
 
     struct SlidingData { U64 bb; int type; };
-    std::vector<SlidingData> pieces;
+    SlidingData pieces[3];
+    int piece_count = 0;
 
     if (ours) {
-        if (rooks & own)   pieces.push_back({rooks & own, rook});
-        if (bishops & own) pieces.push_back({bishops & own, bishop});
-        if (queens & own)  pieces.push_back({queens & own, queen});
+        if (rooks & own)   pieces[piece_count++] = {rooks & own, rook};
+        if (bishops & own) pieces[piece_count++] = {bishops & own, bishop};
+        if (queens & own)  pieces[piece_count++] = {queens & own, queen};
     } else {
-        if (rooks & opp)   pieces.push_back({rooks & opp, rook});
-        if (bishops & opp) pieces.push_back({bishops & opp, bishop});
-        if (queens & opp)  pieces.push_back({queens & opp, queen});
+        if (rooks & opp)   pieces[piece_count++] = {rooks & opp, rook};
+        if (bishops & opp) pieces[piece_count++] = {bishops & opp, bishop};
+        if (queens & opp)  pieces[piece_count++] = {queens & opp, queen};
     }
 
-    for (auto &piece : pieces) {
+    for (int p = 0; p < piece_count; ++p) {
+        SlidingData& piece = pieces[p];
         while (piece.bb) {
             int start_square = getLSB(piece.bb);
             piece.bb &= piece.bb - 1;
@@ -311,6 +313,7 @@ void MoveGenerator::generatePawnPushes(bool ours) {
     if (!ours) {return;}
 
     U64 valid_pawns = ours ? pawns & own : pawns & opp;
+    // captures-only generation: a push can only be kept if it promotes
     U64 potential_moves_bb;
     Move potential_move;
     int start_square;
@@ -374,7 +377,7 @@ void MoveGenerator::generatePawnAttacks(bool ours) {
         potential_moves_bb = limitPinnedMoves(start_square, potential_moves_bb);
         potential_moves_bb = restrictCheckMoves(potential_moves_bb);
 
-        // Handle en passant
+        // Handle en passant (the target square is empty, so never kept captures-only)
         if (curr_gamestate.enPassantFile > -1) {
             int ep_square = (!side ? 5*8 : 2*8) + curr_gamestate.enPassantFile;   // destination
             int captured_pawn_sq = (!side ? 4*8 : 3*8) + curr_gamestate.enPassantFile;
@@ -441,7 +444,7 @@ void MoveGenerator::generateKingMoves(bool ours) {
 
     addMovesFromBitboard(king_square, potential_moves_bb);
 
-    // Castling
+    // Castling (never a capture, so skipped captures-only)
     if (ours && !in_check) {
         U64 castle_blockers = opponentAttackMap | own | opp;
 
