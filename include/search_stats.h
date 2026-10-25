@@ -131,8 +131,10 @@ struct SearchStats {
     #endif
 };
 
-// --- single header-only global instance ---
-inline SearchStats g_stats{};
+// --- one instance per thread: each search thread records its own counters; the
+// UCI thread runs the main search and reports its copy. Defined in searcher.cpp
+// (an inline thread_local with a dynamic initializer does not link with MinGW GCC) ---
+extern thread_local SearchStats g_stats;
 
 // -------------------------
 //      Reset

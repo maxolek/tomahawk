@@ -339,8 +339,12 @@ void UCI::handleZobrist() {
     }
     std::cout << "\n--- Rep Stack ---\n";
 
+    // occurrence counts are derived from the position history
+    std::unordered_map<U64, int> hash_counts;
+    for (U64 hash : engine->game_board.zobrist_history) hash_counts[hash]++;
+
     int sum = 0;
-    for (const auto& entry : engine->game_board.hash_history) {
+    for (const auto& entry : hash_counts) {
         uint64_t hash = entry.first;
         int count = entry.second;
         std::cout << "Hash: 0x" << std::hex << hash 
@@ -360,14 +364,14 @@ void UCI::handleZobrist() {
 // TT
 
 void UCI::handleClearTT() {
+    const size_t filled = engine->tt.filled();
     std::cout << "\nClearing ... " 
-            << engine->tt.filledCount << " / " << engine->tt.entriesCount 
+            << filled << " / " << engine->tt.entriesCount 
             << "  "
-            << std::fixed << std::setprecision(1) << 100*engine->tt.fillRatio()
-            << "%  (" 
-            << std::fixed << std::setprecision(1) << (sizeof(TTEntry) * engine->tt.filledCount) / (1024*1024)
-            << " MBs)\n"  
-    << std::endl;
+            << std::fixed << std::setprecision(1) << 100.0 * static_cast<double>(filled) / static_cast<double>(engine->tt.entriesCount)
+            << "%  " 
+            << std::fixed << std::setprecision(1) << (sizeof(TTEntry) * filled) / 1024 / 1024
+            << " MBs\n"  << std::endl;
 
     engine->tt.clear();
     std::cout << "\nCleared!\n" << std::endl;

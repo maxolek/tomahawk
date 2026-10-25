@@ -15,13 +15,37 @@ struct RootMove {
 };
 
 struct PV {
-    std::vector<Move> line;
-    void clear() { line.clear(); }
+    // Fixed capacity, so building lines in the search never touches the heap.
+    // Moves are kept as raw values so constructing a PV does not initialize storage.
+    // Lines longer than MAX_LEN keep their first MAX_LEN moves.
+    static constexpr int MAX_LEN = 128;
+    int length = 0;
+    ushort moves[MAX_LEN];
+
+    PV() {}
+    PV(const PV& other) : length(other.length) { std::memcpy(moves, other.moves, sizeof(ushort) * (size_t)length); }
+    PV& operator=(const PV& other) {
+        length = other.length;
+        std::memcpy(moves, other.moves, sizeof(ushort) * (size_t)length);
+        return *this;
+    }
+
+    void clear() { length = 0; }
+    int size() const { return length; }
+    Move operator[](int i) const { return Move(moves[i]); }
+
     inline void set(Move first, const PV& child) {
-        line.clear();
-        line.reserve(1 + child.line.size());
-        line.push_back(first);
-        line.insert(line.end(), child.line.begin(), child.line.end());
+        const int n = std::min(child.length, MAX_LEN - 1);
+        moves[0] = first.Value();
+        std::memcpy(moves + 1, child.moves, sizeof(ushort) * (size_t)n);
+        length = n + 1;
+    }
+
+    std::vector<Move> to_vector() const {
+        std::vector<Move> out;
+        out.reserve((size_t)length);
+        for (int i = 0; i < length; ++i) out.push_back(Move(moves[i]));
+        return out;
     }
 };
 

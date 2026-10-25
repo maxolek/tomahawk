@@ -50,6 +50,7 @@ set(SOURCES
     ${SRC_DIR}/nnue.cpp
     ${SRC_DIR}/precomp.cpp
     ${SRC_DIR}/searcher.cpp
+    ${SRC_DIR}/threads.cpp
     ${SRC_DIR}/uci.cpp
     ${SRC_DIR}/main.cpp
 )
