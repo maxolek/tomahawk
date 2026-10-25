@@ -438,17 +438,83 @@ bool Board::inCheck(bool init) {
     return false;
 }
 
+
 bool Board::givesCheck(Move move) {
-    // due to discovered checks, promotions, etc
-    // we cannot just use bitboards to detect the check
-    // so just make/unmake the move (fast enoough, but could use some nps testing)
+    // Computes the result of MakeMove(move); inCheck(true); UnmakeMove(move) directly
+    // from bitboards. That make/unmake pair also has two observable net effects, which
+    // are reproduced below so search behaviour is unchanged:
+    //   * sqToPiece is rewritten from the bitboards on every square the move touches
+    //     (this refreshes stale promotion / en-passant entries that SEE reads), and
+    //   * a capture re-evaluates the pawn_endgame flag the way CapturePiece() and
+    //     UnmakeMove() do.
+    const int from = move.StartSquare();
+    const int to = move.TargetSquare();
+    const int flag = move.MoveFlag();
+    const int us = move_color;
+    const int them = 1 - us;
+    const U64 fromBB = 1ULL << from;
+    const U64 toBB = 1ULL << to;
+    const bool is_ep = (flag == Move::enPassantCaptureFlag);
 
-    MakeMove(move);
-    bool in_check = inCheck(true);
-    UnmakeMove(move);
+    const int moved = getMovedPiece(from);
+    const int captured = is_ep ? pawn : getCapturedPiece(to);
+    const int arriving = move.IsPromotion() ? move.PromotionPieceType() : moved;
 
-    return in_check;
+    // --- position after the move (our pieces + occupancy are all inCheck() needs) ---
+    const U64 ownBefore = colorBitboards[us] & ~fromBB;
+    U64 usAfter = ownBefore | toBB;
+    U64 themAfter = colorBitboards[them];
+    const int ep_sq = to + (us == 0 ? -8 : 8);
+    if (is_ep) themAfter &= ~(1ULL << ep_sq);
+    else if (captured != -1) themAfter &= ~toBB;
+
+    auto ours = [&](int type) {
+        U64 bb = pieceBitboards[type] & ownBefore;
+        return type == arriving ? (bb | toBB) : bb;
+    };
+    U64 ourRooks = ours(rook);
+    int rook_from = -1, rook_to = -1;
+    if (flag == Move::castleFlag) {
+        if (us == 0) { rook_from = (to == g1) ? h1 : a1; rook_to = (to == g1) ? f1 : d1; }
+        else         { rook_from = (to == g8) ? h8 : a8; rook_to = (to == g8) ? f8 : d8; }
+        const U64 rookMove = (1ULL << rook_from) | (1ULL << rook_to);
+        ourRooks ^= rookMove;
+        usAfter ^= rookMove;
+    }
+
+    const U64 occ = usAfter | themAfter;
+    const int king_sq = sqidx(pieceBitboards[king] & colorBitboards[them]);
+    const U64 ourQueens = ours(queen);
+    const bool check =
+        (ours(knight) & PrecomputedMoveData::blankKnightAttacks[king_sq]) ||
+        (ours(pawn) & PrecomputedMoveData::fullPawnAttacks[king_sq][them]) ||
+        ((ours(bishop) | ourQueens) & Magics::bishopAttacks(king_sq, occ)) ||
+        ((ourRooks | ourQueens) & Magics::rookAttacks(king_sq, occ));
+
+    // --- net effect of the make/unmake pair on cached state ---
+    if (captured != -1) {
+        bool pe = pawn_endgame;
+        if (!pe) {
+            // CapturePiece() tests the board after the capture, before any promotion
+            const bool moverIsPiece = (moved > pawn && moved < king);
+            const U64 pieces = pieceBitboards[knight] | pieceBitboards[bishop]
+                             | pieceBitboards[rook] | pieceBitboards[queen];
+            if (!moverIsPiece && !(pieces & ~toBB)) pe = true;
+        }
+        if (pe && captured > pawn && captured < king) pe = false;
+        pawn_endgame = pe;
+    }
+    sqToPiece[from] = moved + us * 6;
+    sqToPiece[to] = (!is_ep && captured != -1) ? captured + them * 6 : -1;
+    if (is_ep) sqToPiece[ep_sq] = pawn + them * 6;
+    if (rook_from >= 0) {
+        sqToPiece[rook_from] = rook + us * 6;
+        sqToPiece[rook_to] = -1;
+    }
+
+    return check;
 }
+
 
 // ------------------------------------------------------------
 // FEN handling
