@@ -28,6 +28,10 @@ public:
     // Storage Type
     // -----------------------
     bool quiescence = false;
+    // quiescence generation when not in check keeps only captures and promotions;
+    // these let the generators skip the other moves up front (same moves, same order)
+    bool captures_only = false;
+    U64 target_filter = ~0ULL;
 
     // ------------------------
     // Constructor
@@ -64,7 +68,7 @@ public:
     // ------------------------
     // Move Classification
     // ------------------------
-    bool shouldAddMove(const Move& move) const;
+    //bool shouldAddMove(const Move& move) const;
     bool isCheck(const Move move); // legal only (all - including discovered)
 
     // ------------------------

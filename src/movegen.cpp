@@ -44,6 +44,9 @@ int MoveGenerator::generateMoves(const Board& _board, bool _quiescence) {
     if (in_double_check) { // cannot capture or block out of a double check
         generateKingMoves(true);
     } else {
+        captures_only = quiescence && !in_check;
+        target_filter = captures_only ? opp : ~0ULL;
+
         // gen moves
         // uses stored information from gen oppponent moves to determine legality
         generatePawnPushes(true);
@@ -212,7 +215,7 @@ void MoveGenerator::generateSlidingMoves(bool ours) {
 
             if (!ours) continue; // only need to update boards + check
             
-            potential_moves_bb = attacks & ~own;
+            potential_moves_bb = attacks & ~own & target_filter;
 
             potential_moves_bb = limitPinnedMoves(start_square, potential_moves_bb);
             potential_moves_bb = restrictCheckMoves(potential_moves_bb);
@@ -297,7 +300,7 @@ void MoveGenerator::generateKnightMoves(bool ours) {
 
         if (!ours) continue; // only need to update boards + check
 
-        potential_moves_bb &= ~own;  // cannot capture own pieces
+        potential_moves_bb &= ~own & target_filter;  // cannot capture own pieces
 
         potential_moves_bb = limitPinnedMoves(start_square, potential_moves_bb);
         potential_moves_bb = restrictCheckMoves(potential_moves_bb);
@@ -314,6 +317,7 @@ void MoveGenerator::generatePawnPushes(bool ours) {
 
     U64 valid_pawns = ours ? pawns & own : pawns & opp;
     // captures-only generation: a push can only be kept if it promotes
+    if (captures_only) valid_pawns &= (side == 0) ? Bits::mask_rank_7 : Bits::mask_rank_2;
     U64 potential_moves_bb;
     Move potential_move;
     int start_square;
@@ -345,14 +349,14 @@ void MoveGenerator::generatePawnPushes(bool ours) {
         forEachBit(potential_moves_bb, [&](int target_square) {
             if (target_square == two_step) {
                 Move m(start_square, target_square, Move::pawnTwoUpFlag);
-                if (shouldAddMove(m)) moves[count++] = m;
+                moves[count++] = m; // if (shouldAddMove(m))
             }
             else if (isPromotionPawn(start_square)) {
                 generatePromotions(start_square, target_square);
             }
             else {
                 Move m(start_square, target_square);
-                if (shouldAddMove(m)) moves[count++] = m;
+                moves[count++] = m; // if (shouldAddMove(m))
             }
         });
     }
@@ -399,10 +403,10 @@ void MoveGenerator::generatePawnAttacks(bool ours) {
             } else if ((target_square % 8) == curr_gamestate.enPassantFile &&
                         ((side == 0 && target_square / 8 == 5) || (side == 1 && target_square / 8 == 2))) {
                 Move m(start_square, target_square, Move::enPassantCaptureFlag);
-                if (shouldAddMove(m)) moves[count++] = m;
+                moves[count++] = m; // if (shouldAddMove(m))
             } else {
                 Move m(start_square, target_square);
-                if (shouldAddMove(m)) moves[count++] = m;
+                moves[count++] = m; // if (shouldAddMove(m))
             }
         });
     }
@@ -415,8 +419,8 @@ void MoveGenerator::generatePromotions(int start_square, int target_square) {
 
     for (int flag : move_flags) {
         potential_move = Move(start_square, target_square, flag);
-        if (shouldAddMove(potential_move)) 
-            moves[count++] = potential_move;
+        // if (shouldAddMove(m))
+        moves[count++] = potential_move;
     }
 }
 
@@ -431,7 +435,7 @@ void MoveGenerator::generateKingMoves(bool ours) {
     if (!ours) return;
 
     // Remove friendly-occupied squares
-    potential_moves_bb &= ~own;
+    potential_moves_bb &= ~own & target_filter;
 
     // Prevent king from moving into attack
     potential_moves_bb &= ~opponentAttackMap;
@@ -445,7 +449,7 @@ void MoveGenerator::generateKingMoves(bool ours) {
     addMovesFromBitboard(king_square, potential_moves_bb);
 
     // Castling (never a capture, so skipped captures-only)
-    if (ours && !in_check) {
+    if (ours && !in_check && !captures_only) {
         U64 castle_blockers = opponentAttackMap | own | opp;
 
         // Kingside
@@ -454,7 +458,7 @@ void MoveGenerator::generateKingMoves(bool ours) {
             if (!(mask & castle_blockers)) {
                 int target = (side == 0) ? g1 : g8;
                 Move m(king_square, target, Move::castleFlag);
-                if (shouldAddMove(m)) moves[count++] = m;
+                moves[count++] = m; // if (shouldAddMove(m))
             }
         }
 
@@ -465,7 +469,7 @@ void MoveGenerator::generateKingMoves(bool ours) {
             if (!(mask & castle_blockers) && !((own | opp) & mask_ext)) {
                 int target = (side == 0) ? c1 : c8;
                 Move m(king_square, target, Move::castleFlag);
-                if (shouldAddMove(m)) moves[count++] = m;
+                moves[count++] = m; // if (shouldAddMove(m))
             }
         }
     }
@@ -571,6 +575,9 @@ void MoveGenerator::updateBitboards(const Board& _board) {
     opponentAttackMap = ownAttackMap = 0ULL;
     own_king_square = sqidx(own&kings);
 
+    captures_only = false;
+    target_filter = ~0ULL;
+
     count = 0;
 }
 
@@ -589,7 +596,7 @@ U64 MoveGenerator::restrictCheckMoves(U64 moves_bb) {
 void MoveGenerator::addMovesFromBitboard(int start_square, U64 moves_bb, int flag) {
     forEachBit(moves_bb, [&](int target_square){
         Move m(start_square, target_square, flag);
-        if (shouldAddMove(m)) moves[count++] = m;
+        moves[count++] = m; // if (shouldAddMove(m))
     });
 }
 
@@ -631,8 +638,7 @@ void MoveGenerator::updateAttackMapAndCheck(U64 attacks_bb, bool ours, int start
 }
 
 
-
-
+/*
 bool MoveGenerator::shouldAddMove(const Move& move) const {
     if (in_check) return true;              // all moves matter in check
     if (!quiescence) return true;           // in normal search, include everything
@@ -640,3 +646,4 @@ bool MoveGenerator::shouldAddMove(const Move& move) const {
     if (opp & (1ULL << move.TargetSquare())) return true; // captures
     return false;                           // otherwise, ignore in quiescence
 }
+*/
