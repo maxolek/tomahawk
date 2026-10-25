@@ -385,6 +385,7 @@ void Engine::startSearch() {
         affinity::apply_to_current_thread(placement.unpinned[0]);
         report += " (the operating system refused to move the main search thread)";
     }
+    report += "; main search thread currently on " + affinity::describe_current_core();
     if (report != affinity_report) {
         affinity_report = report;
         std::cout << "info string " << report << std::endl;

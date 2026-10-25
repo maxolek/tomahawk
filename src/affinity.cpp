@@ -38,7 +38,7 @@ constexpr int MAX_CPU = 4095; // largest CPU number accepted in an option value
 struct Core {
     std::vector<int> cpus; // its logical CPUs
     int speed = 0;         // core type: higher is faster (Windows efficiency class, Linux capacity)
-    int cluster = -1;      // id of the L2 cache it may share with other cores; -1 = unknown
+    int cluster = -1;      // id of the L2 cache it msay share with other cores; -1 = unknown
 };
 
 // The cores `auto` treats as performance cores: within 10% of the fastest type.
@@ -130,6 +130,7 @@ Topology build_topology(std::vector<Core> cores) {
             if (t < core->cpus.size()) topo.order.push_back(core->cpus[t]);
 
     for (const Core& core : cores) {
+        topo.cores.push_back(core.cpus);
         if (is_fast(core.speed, fastest)) {
             ++topo.performance_cores;
             topo.performance.insert(topo.performance.end(), core.cpus.begin(), core.cpus.end());
@@ -267,6 +268,12 @@ bool pin_self(const std::vector<int>& cpus) {
     return SetThreadGroupAffinity(GetCurrentThread(), &group, nullptr) != 0;
 }
 
+int current_cpu() {
+    PROCESSOR_NUMBER processor{};
+    GetCurrentProcessorNumberEx(&processor);
+    return 64 * processor.Group + processor.Number;
+}
+
 #elif defined(__linux__)
 
 std::string read_line(const std::string& path) {
@@ -342,11 +349,16 @@ bool pin_self(const std::vector<int>& cpus) {
     return pthread_setaffinity_np(pthread_self(), sizeof(set), &set) == 0;
 }
 
+int current_cpu() {
+    return sched_getcpu();
+}
+
 #else // no thread placement API (e.g. macOS)
 
 std::vector<Core> detect_cores() { return {}; }
 std::vector<int> allowed_cpus(const Topology&) { return {}; }
 bool pin_self(const std::vector<int>&) { return false; }
+int current_cpu() { return -1; }
 
 #endif
 
@@ -395,6 +407,20 @@ std::string describe(const Topology& topo) {
         text += std::to_string(topo.performance_cores) + " cores";
     if (topo.smt) text += " (smt)";
     return text + "; auto order " + format_cpus(topo.order);
+}
+
+std::string describe_current_core() {
+    const int cpu = current_cpu();
+    if (cpu < 0) return "current core unavailable";
+
+    const Topology& topo = topology();
+    for (const auto& core : topo.cores) {
+        if (std::find(core.begin(), core.end(), cpu) != core.end()) {
+            return "core cpus " + format_cpus(core) + " (running on logical cpu " +
+                   std::to_string(cpu) + ")";
+        }
+    }
+    return "logical cpu " + std::to_string(cpu) + " (core topology unavailable)";
 }
 
 bool parse(const std::string& text, Spec& spec, std::string& error) {

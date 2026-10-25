@@ -38,6 +38,7 @@ namespace affinity {
 struct Topology {
     std::vector<int> order;       // every logical CPU, in the order `auto` places threads
     std::vector<int> performance; // logical CPUs of the performance cores, ascending
+    std::vector<std::vector<int>> cores; // logical CPUs belonging to each physical core
     int performance_cores = 0;    // physical cores within 10% of the fastest core type
     int other_cores = 0;          // slower physical cores (efficiency cores)
     bool smt = false;             // some core has more than one logical CPU
@@ -48,6 +49,8 @@ struct Topology {
 const Topology& topology();
 // One line for "info string", e.g. "16 logical cpus: 4 performance + 8 efficiency cores ...".
 std::string describe(const Topology& topo);
+// Describes the physical core and logical CPU currently running this thread.
+std::string describe_current_core();
 
 // A parsed Affinity option value.
 struct Spec {
