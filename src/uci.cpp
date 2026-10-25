@@ -9,6 +9,28 @@ namespace fs = std::filesystem;
 
 std::string _no_stats_str = "\nPROD engine ... no stats tracking";
 
+// instruction-set features this binary was compiled for (reported by 'uci')
+// "avx2" means the AVX2 NNUE kernels are in use
+static std::string build_simd_features() {
+    std::string features;
+
+#ifdef __AVX2__
+    features = "avx2 ";
+#elif defined(__ARM_NEON)
+    features = "neon";
+#else
+    features = "none";
+#endif
+#if defined(__AVXVNNI__)
+    features += " avxvnni";
+#endif
+#if defined(__BMIS2__)
+    features += " bmis2";
+#endif
+
+    return features;
+}
+
 
 UCI::UCI(Engine& eng) {
     engine=&eng;
@@ -42,6 +64,10 @@ void UCI::handleCommand(const std::string& line) {
             std::cout << "id name tomahawk\n";
             std::cout << "id version " << ENGINE_ID << "\n";
             std::cout << "id author max oleksa\n";
+
+            // engine binary
+            std::cout << "info string simd " << build_simd_features() << "\n";
+            std::cout << "info string cpu topology " << affinity::describe(affinity::topology()) << "\n";
 
             // engine options
             std::cout << "option name Move Overhead type spin default " << engine->engine_options.MOVE_OVERHEAD_MS << " min 0 max 1000\n";
