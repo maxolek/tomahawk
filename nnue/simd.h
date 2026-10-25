@@ -81,6 +81,63 @@ inline void add_sub_feature_simd(const int16_t* add_col, const int16_t* sub_col,
     }
 }
 
+// copy-on-update kernels for the accumulator stack: dst = src + add - sub (- sub2)
+// int16 arithmetic wraps, so the result equals any sequence of individual updates
+inline void copy_add_sub_simd(const int16_t* src, int16_t* dst, 
+                              const int16_t* add, const int16_t* sub) {
+    for (int i = 0; i < L1_SIZE; i += 16) {
+        vec256_t s = vec_load<int16_t, vec256_t>(src + i);
+        vec256_t a = vec_load<int16_t, vec256_t>(add + i);
+        vec256_t b = vec_load<int16_t, vec256_t>(sub + i);
+
+        s = vec_add16<vec256_t>(s, a);
+        s = vec_sub16<vec256_t>(s, b);
+
+        vec_store<vec256_t, int16_t>(dst + i, s);
+    }
+}
+
+inline void copy_add_sub_sub_simd(const int16_t* src, int16_t* dst, 
+                                  const int16_t* add, const int16_t* sub1, const int16_t* sub2) {
+    for (int i = 0; i < L1_SIZE; i += 16) {
+        vec256_t s = vec_load<int16_t, vec256_t>(src + i);
+        vec256_t a = vec_load<int16_t, vec256_t>(add + i);
+        vec256_t b = vec_load<int16_t, vec256_t>(sub1 + i);
+        vec256_t c = vec_load<int16_t, vec256_t>(sub2 + i);
+
+        s = vec_add16<vec256_t>(s, a);
+        s = vec_sub16<vec256_t>(s, b);
+        s = vec_sub16<vec256_t>(s, c);
+
+        vec_store<vec256_t, int16_t>(dst + i, s);
+    }
+}
+
+// dst = bias + sum of the given feature rows. works on register-resident tiles 
+// so accumulator is written once instead of once per feature 
+inline void refresh_simd(int16_t* dst, const int16_t* bias, const int16_t (*W)[L1_SIZE], 
+                         const int* features, int count) {
+
+    constexpr int TILE_REGS = 8; // 8x16 int16 = 128 int16 per tile
+    constexpr int TILE_SIZE = TILE_REGS * 16;
+    static_assert(L1_SIZE % TILE_SIZE == 0, "L1_SIZE must be a multiple of the tile size");
+
+    for (int t = 0; t < L1_SIZE; t += TILE_SIZE) {
+        vec256_t r[TILE_REGS];;
+
+        for (int k = 0; k < TILE_REGS; k++) 
+            r[k] = vec_load<int16_t, vec256_t>(bias + t + 16 * k);
+
+        for (int f = 0; f < count; f++) {
+            const int16_t* w = W[features[f]] + t;
+            for (int k = 0; k < TILE_REGS; k++) 
+                r[k] = vec_add16<vec256_t>(r[k], vec_load<int16_t, vec256_t>(w + 16 * k));
+        }
+
+        for (int k = 0; k < TILE_REGS; k++) 
+            vec_store<vec256_t, int16_t>(dst + t + 16 * k, r[k]);
+    }
+}
 
 // ---------- feature transformer -----------
 
@@ -89,6 +146,7 @@ inline void pairwise_mul_simd(const int16_t* stm, const int16_t* ntm, int16_t* r
     static_assert(QA > 0 && int64_t(QA) * QA <= INT16_MAX,
                   "Pairwise activations must fit signed int16");
     static_assert(L1_SIZE % 32 == 0, "Each perspective must contain whole SIMD vectors");
+    
     constexpr int HALF = L1_SIZE / 2;
     for (int i = 0; i < HALF; i += 16) {
         const auto us = vec_mullo16(vec_load<int16_t, vec256_t>(stm + i),
@@ -127,7 +185,7 @@ inline void pairwise_mul_simd(
         vec_store<vec256_t, int32_t>(
             &result[i + 8],
             vec_convert_16_32<vec128_t, vec256_t>(
-                vec_extract_256_128<vec256_t, vec128_t>(stm_r, 1)
+                vec_extract_256_128<1>(stm_r)
             )
         );
 
@@ -141,7 +199,7 @@ inline void pairwise_mul_simd(
         vec_store<vec256_t, int32_t>(
             &result[i + HALF + 8],
             vec_convert_16_32<vec128_t, vec256_t>(
-                vec_extract_256_128<vec256_t, vec128_t>(ntm_r, 1)
+                vec_extract_256_128<1>(ntm_r)
             )
         );
     }
@@ -153,13 +211,13 @@ inline void pairwise_mul_simd(
 // performs weight multplication for !! output layer !!
 inline int32_t hsum_epi32(vec256_t v) {
     vec128_t lo = vec_cast_256_128<vec256_t, vec128_t>(v);
-    vec128_t hi = vec_extract_256_128<vec256_t, vec128_t>(v, 1);
+    vec128_t hi = vec_extract_256_128<1>(v);
     lo = vec_add32<vec128_t>(lo, hi);
 
-    vec128_t shuf = vec_shuffle32<vec128_t>(lo, _MM_SHUFFLE(1, 0, 3, 2));
+    vec128_t shuf = vec_shuffle32<_MM_SHUFFLE(1, 0, 3, 2)>(lo);
     lo = vec_add32<vec128_t>(lo, shuf);
 
-    shuf = vec_shuffle32<vec128_t>(lo, _MM_SHUFFLE(0, 1, 0, 1));
+    shuf = vec_shuffle32<_MM_SHUFFLE(0, 1, 0, 1)>(lo);
     lo = vec_add32<vec128_t>(lo, shuf);
     return vec_convert_si128_32<vec128_t, int32_t>(lo);
 }
@@ -167,7 +225,7 @@ inline int32_t hsum_epi32(vec256_t v) {
 // horizontal sum of 4x int64
 inline int64_t hsum_epi64(vec256_t v) {
     vec128_t lo = vec_cast_256_128<vec256_t, vec128_t>(v);
-    vec128_t hi = vec_extract_256_128<vec256_t, vec128_t>(v, 1);
+    vec128_t hi = vec_extract_256_128<1>(v);
     vec128_t sum128 = vec_add64<vec128_t>(lo, hi);
     vec128_t hi64   = vec_unpackhi64<vec128_t>(sum128, sum128);
     vec128_t sum64  = vec_add64(sum128, hi64);
@@ -267,7 +325,7 @@ inline int64_t dot_i32_i8_widen(const int32_t* a, const int8_t* w, int size) {
         // _mm256_mul_epi32 reads the low 32 bits of each 64-bit lane, signed,
         // and produces a true 64-bit product -- widening, no overflow.
         vec256_t lo = vec_mul32<vec256_t>(av, wv);                                     // lanes 0,2,4,6
-        vec256_t hi = vec_mul32<vec256_t>(vec_shift_right256<vec256_t>(av, 4), vec_shift_right256<vec256_t>(wv, 4)); // lanes 1,3,5,7
+        vec256_t hi = vec_mul32<vec256_t>(vec_shift_right256<4>(av), vec_shift_right256<4>(wv)); // lanes 1,3,5,7
 
         acc_lo = vec_add64<vec256_t>(acc_lo, lo);
         acc_hi = vec_add64<vec256_t>(acc_hi, hi);
@@ -314,19 +372,165 @@ inline void activate_screlu64(const int32_t* in, int64_t* out, int size, int32_t
 
         // widening square: 32x32 -> 64, 4 lanes at a time, done twice for 8 int32 inputs
         vec256_t lo = vec_mul32<vec256_t>(v, v);                                    // squares elements 0,2,4,6 -> 64-bit
-        vec256_t hi = vec_mul32<vec256_t>(vec_shift_right256<vec256_t>(v, 4), vec_shift_right256<vec256_t>(v, 4)); // elements 1,3,5,7
+        vec256_t hi = vec_mul32<vec256_t>(vec_shift_right256<4>(v), vec_shift_right256<4>(v)); // elements 1,3,5,7
         // unpacklo/hi only interleave within each 128-bit half:
         //   u_lo = [v0²,v1²,v4²,v5²]   u_hi = [v2²,v3²,v6²,v7²]
         vec256_t u_lo = vec_unpacklo64<vec256_t>(lo, hi);
         vec256_t u_hi = vec_unpackhi64<vec256_t>(lo, hi);
 
         // reassemble across the 128-bit boundary to get true sequential order
-        vec256_t out_lo = vec_permute2x128<vec256_t>(u_lo, u_hi, 0x20); // v0²,v1²,v2²,v3²
-        vec256_t out_hi = vec_permute2x128<vec256_t>(u_lo, u_hi, 0x31); // v4²,v5²,v6²,v7²
+        vec256_t out_lo = vec_permute2x128<0x20>(u_lo, u_hi); // v0²,v1²,v2²,v3²
+        vec256_t out_hi = vec_permute2x128<0x31>(u_lo, u_hi); // v4²,v5²,v6²,v7²
         
         vec_store<vec256_t, int64_t>(out + i, out_lo);
         vec_store<vec256_t, int64_t>(out + i + 4, out_hi);
     }
 }
+
+// ============================================================
+// AVX2 inference kernels
+// ============================================================
+// Integer-exact replacements for the dense layers above: they produce the same
+// sums, only with fewer instructions. Other targets use the generic kernels.
+#if defined(__AVX2__)
+
+// first dense layer: CReLU of both accumulators, pairwise multiply, and the 1024 -> 16 affine product
+// after CReLU most pairwise products are zero, so the products are grouped in in16 pairs
+// and only non-zero pairs are multiplied, each against all 16 outputs at once
+// p[i] = clamp(us[i], 0, QA) * clamp(us[i + HALF], 0, QA) 
+// sums[o] = bias[o] + sum_i p[i] * w_pairs[o][i]
+inline void l1_sparse_avx2(const int16_t* us, const int16_t* them, 
+                            const int16_t (*w_pairs)[2 * L2_SIZE], int32_t* sums) {
+    static_assert(L2_SIZE == 16,  "one input pair is multiplied into two 8-lane accumulators");
+    static_assert(int64_t(QA) * QA < 32768, "pairwise products must be non-negative int16");
+    static_assert(L1_SIZE % 256 == 0, "whole 64-pair mask words per perspective");
+
+    constexpr int HALF = L1_SIZE / 2;
+    constexpr int WORDS = L1_SIZE / 128;    // one mask bit per int16 pair
+    alignas(32) int32_t act[L1_SIZE / 2];   // pairwise products, two int16 per enty
+    uint64_t masks[WORDS];
+
+    const __m256i zero = _mm256_setzero_si256();
+    const __m256i qa   = _mm256_set1_epi16(QA);
+
+    // within layer transforms
+    // (crelu + pairmul) for both perspectives
+    for (int perspective = 0; perspective < 2; perspective++) {
+        const int16_t* acc = perspective ? them : us;
+
+        for (int group = 0; group < HALF / 128; group++) {
+            uint64_t mask = 0;
+
+            for (int v = 0; v < 8; v++) {
+                const int i = group * 128 + v * 16;
+
+                // CReLU
+                const __m256i a = _mm256_min_epi16(_mm256_max_epi16(
+                    _mm256_load_si256(reinterpret_cast<const __m256i*>(acc + i)), zero), qa);
+                const __m256i b = _mm256_min_epi16(_mm256_max_epi16(
+                    _mm256_load_si256(reinterpret_cast<const __m256i*>(acc + HALF + i)), zero), qa);
+                
+                // pair-mul
+                const __m256i p = _mm256_mullo_epi16(a, b);
+                _mm256_store_si256(reinterpret_cast<__m256i*>(act + (perspective * HALF + i) / 2), p);
+
+                const unsigned nz = static_cast<unsigned>(
+                    _mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpgt_epi32(p, zero))));
+                
+                mask |= static_cast<uint64_t>(nz) << (8 * v);
+            }
+
+            masks[perspective * (HALF / 128) + group] = mask;
+        }
+    }
+
+    // (sparse) affine transform
+    // walk the non-zero pairs, alternating two accumulator pairs so the 
+    // multiply-adds (single multi-cycle instruction on AVX-VNNI target)
+    // do not form one long dependency chain
+    __m256i a0 = zero, a1 = zero, b0 = zero, b1 = zero;
+    for (int word = 0; word < WORDS; word++) {
+        uint64_t mask = masks[word];
+        const int32_t* x = act + 64 * word;
+        const int16_t (*w) [2 * L2_SIZE] = w_pairs + 64 * word;
+
+        while (mask) {
+            int k = __builtin_ctzll(mask);
+            mask &= mask-1;
+            const __m256i xk = _mm256_set1_epi32(x[k]);
+            const __m256i* wk = reinterpret_cast<const __m256i*>(w[k]);
+
+            a0 = _mm256_add_epi32(a0, _mm256_madd_epi16(xk, _mm256_load_si256(wk)));
+            a1 = _mm256_add_epi32(a1, _mm256_madd_epi16(xk, _mm256_load_si256(wk + 1)));
+            
+            if (!mask) break;
+
+            k = __builtin_ctzll(mask);
+            mask &= mask-1;
+            const __m256i xk2 = _mm256_set1_epi32(x[k]);
+            const __m256i* wk2 = reinterpret_cast<const __m256i*>(w[k]);
+
+            b0 = _mm256_add_epi32(b0, _mm256_madd_epi16(xk2 , _mm256_load_si256(wk2)));
+            b1 = _mm256_add_epi32(b1, _mm256_madd_epi16(xk2, _mm256_load_si256(wk2 + 1)));
+        }
+    }
+
+    // add bias to all 16 outputs
+    const __m256i s0 = _mm256_add_epi32(a0, b0);
+    const __m256i s1 = _mm256_add_epi32(a1, b1);
+
+    _mm256_storeu_si256(reinterpret_cast<__m256i*>(sums), s0);
+    _mm256_storeu_si256(reinterpret_cast<__m256i*>(sums + 8), s1);
+}
+
+// Second dense layer, output-parallel: out[o] = sum_i x[i] * w[i][o] with exact
+// 64-bit products (each x[i] fits a signed 32-bit lane).
+inline void l2_avx2(const int32_t* x, const int64_t (*w_by_input)[L3_SIZE], int64_t* out) {
+    static_assert(L3_SIZE == 32, "eight 4-lane int64 accumulators");
+    __m256i a0 = _mm256_setzero_si256(), a1 = a0, a2 = a0, a3 = a0, a4 = a0, a5 = a0, a6 = a0, a7 = a0;
+    for (int i = 0; i < L2_SIZE; ++i) {
+        const __m256i xi = _mm256_set1_epi32(x[i]);
+        const __m256i* wi = reinterpret_cast<const __m256i*>(w_by_input[i]);
+        a0 = _mm256_add_epi64(a0, _mm256_mul_epi32(xi, _mm256_load_si256(wi + 0)));
+        a1 = _mm256_add_epi64(a1, _mm256_mul_epi32(xi, _mm256_load_si256(wi + 1)));
+        a2 = _mm256_add_epi64(a2, _mm256_mul_epi32(xi, _mm256_load_si256(wi + 2)));
+        a3 = _mm256_add_epi64(a3, _mm256_mul_epi32(xi, _mm256_load_si256(wi + 3)));
+        a4 = _mm256_add_epi64(a4, _mm256_mul_epi32(xi, _mm256_load_si256(wi + 4)));
+        a5 = _mm256_add_epi64(a5, _mm256_mul_epi32(xi, _mm256_load_si256(wi + 5)));
+        a6 = _mm256_add_epi64(a6, _mm256_mul_epi32(xi, _mm256_load_si256(wi + 6)));
+        a7 = _mm256_add_epi64(a7, _mm256_mul_epi32(xi, _mm256_load_si256(wi + 7)));
+    }
+    __m256i* o = reinterpret_cast<__m256i*>(out);
+    _mm256_storeu_si256(o + 0, a0); _mm256_storeu_si256(o + 1, a1);
+    _mm256_storeu_si256(o + 2, a2); _mm256_storeu_si256(o + 3, a3);
+    _mm256_storeu_si256(o + 4, a4); _mm256_storeu_si256(o + 5, a5);
+    _mm256_storeu_si256(o + 6, a6); _mm256_storeu_si256(o + 7, a7);
+}
+
+// output layer: sum_i clamp(x[i], 0, cap)^2 * w[i], computed as c * (c * w)
+// so every product is exact (c * w fits 32 bits, the result is accumulated in 64)
+inline int64_t l3_screlu_avx2(const int32_t* x, const int32_t* w, const int32_t* bias, int32_t cap) {
+    static_assert(L3_SIZE % 8 == 0, "whole 8-lane vectors");
+    static_assert(int64_t(QA) * QB * QC * 128 <= INT32_MAX, "c * w must fit a signed 32-bit lane");
+
+    const __m256i zero = _mm256_setzero_si256();
+    const __m256i capv = _mm256_set1_epi32(cap);
+    __m256i acc = zero;
+
+    for (int i = 0; i < L3_SIZE; i += 8) {
+        const __m256i c = _mm256_min_epi32(_mm256_max_epi32(
+            _mm256_loadu_si256(reinterpret_cast<const __m256i*>(x + i)), zero), capv);
+        const __m256i cw = _mm256_mullo_epi32(c, _mm256_load_si256(reinterpret_cast<const __m256i*>(w + i)));
+
+        acc = _mm256_add_epi64(acc, _mm256_mul_epi32(c, cw)); // c * (cw)
+        acc = _mm256_add_epi64(acc, _mm256_mul_epi32(
+            _mm256_srli_epi64(c, 32), _mm256_srli_epi64(cw, 32)));
+    }
+
+    // affine (output)
+    return hsum_epi64(acc);
+}
+
+#endif // avx2
 
 #endif // SIMD_H

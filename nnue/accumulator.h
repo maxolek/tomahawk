@@ -5,6 +5,30 @@
 #include "simd.h"
 #include "utils.h"
 
+// Initial accumulator-stack depth; deeper searches grow the stack on demand.
+constexpr int ACC_STACK_RESERVE = 256;
+
+// Incremental accumulator state of one search thread: a [white, black] pair per
+// ply. Making a move writes the next ply from the current one and unmaking a move
+// steps back. Network weights are shared read-only; each thread owns its stack.
+struct AccumulatorStack {
+    struct alignas(64) Pair { Accumulator acc[2]; };
+    std::vector<Pair> entries = std::vector<Pair>(ACC_STACK_RESERVE);
+    int ply = 0;
+
+    Accumulator& white() { return entries[static_cast<size_t>(ply)].acc[0]; }
+    Accumulator& black() { return entries[static_cast<size_t>(ply)].acc[1]; }
+    const Accumulator& white() const { return entries[static_cast<size_t>(ply)].acc[0]; }
+    const Accumulator& black() const { return entries[static_cast<size_t>(ply)].acc[1]; }
+
+    // make sure ply + 1 exists (grows the stack for unusually deep lines)
+    void reserve_next() {
+        if (ply + 1 >= static_cast<int>(entries.size())) entries.resize(entries.size() * 2);
+    }
+    void pop() { --ply; }
+};
+
+
 // ============================================================
 // Accumulator: holds hidden activations BEFORE SCReLU
 // ============================================================
@@ -57,6 +81,30 @@ struct Accumulator {
         add_sub_feature_simd(add_col, sub_col, vals);
         //add_feature(add_idx, W);
         //remove_feature(sub_idx, W);
+    }
+
+    // this = src + W[add] - W[sub1] (- W[sub2] when sub >= 0), in a signel pass
+    inline void copy_update(const Accumulator& src, int add, int sub1, int sub2, const int16_t (*W)[L1_SIZE]) {
+        if (sub2 >= 0)  copy_add_sub_sub_simd(src.vals, vals, W[add], W[sub1], W[sub2]);
+        else            copy_add_sub_simd(src.vals, vals, W[add], W[sub1]);
+
+        #ifdef DEBUG 
+            active_features = src.active_features;
+            active_features.insert(add);
+            active_features.erase(sub1);
+            if (sub2 >= 0) active_features.erase(sub2);
+        #endif 
+    }
+
+    // this = bias + sum of W[features[i]] 
+    inline void refresh(const int16_t* bias, const int16_t (*W)[L1_SIZE], const int* features, int count) {
+        refresh_simd(vals, bias, W, features, count);
+
+        #ifdef DEBUG
+            active_features.clear();
+            for (int f : features)
+                active_features.insert(f);
+        #endif
     }
 
 #ifdef DEBUG

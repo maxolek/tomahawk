@@ -23,7 +23,11 @@ template <typename T_out, typename T_in> static inline T_out vec_hi_half(T_in x)
 
 template <typename T> static inline T vec_shift_left64(T x, int shift);
 template <typename T> static inline T vec_shift_right64(T x, int shift);
-template <typename T> static inline T vec_shift_right256(T x, int shift);
+// Byte shifts, shuffles, permutes and lane extracts encode their control as an
+// instruction immediate, so it is a template argument rather than a runtime
+// parameter (Clang, and GCC at -O0, reject non-constant immediates):
+//   vec_shift_right256<shift>(x), vec_shuffle32<imm>(x),
+//   vec_permute2x128<imm>(x, y), vec_extract_256_128<index>(x)
 
 template <typename T> static inline T vec_add16(T x, T y);
 template <typename T> static inline T vec_add32(T x, T y);
@@ -44,11 +48,7 @@ template <typename T> static inline T vec_madd_i16_i8(T acc, T values, const int
 template <typename T> static inline T vec_clamp16(T x, T min, T max);
 template <typename T> static inline T vec_clamp32(T x, T min, T max);
 
-template <typename T> static inline T vec_shuffle32(T x, int imm);
-template <typename T> static inline T vec_permute2x128(T x, T y, int imm);
-
 template <typename T_in, typename T_out> static inline T_out vec_cast_256_128(T_in x);
-template <typename T_in, typename T_out> static inline T_out vec_extract_256_128(T_in x, int imm);
 
 template <typename T_in, typename T_out> static inline T_out vec_convert_8_32(T_in x);
 template <typename T_in, typename T_out> static inline T_out vec_convert_16_32(T_in x);
@@ -136,7 +136,7 @@ template <> inline vec256_t vec_shift_left64<vec256_t>(vec256_t x, int shift) {
 template <> inline vec256_t vec_shift_right64<vec256_t>(vec256_t x, int shift) { 
     return _mm256_srli_epi64(x, shift); 
 }
-template <> inline vec256_t vec_shift_right256<vec256_t>(vec256_t x, int shift) {
+template <int shift> static inline vec256_t vec_shift_right256(vec256_t x) {
     return _mm256_srli_si256(x, shift);
 }
 
@@ -200,15 +200,15 @@ template <> inline vec256_t vec_mulhi16<vec256_t>(vec256_t x, vec256_t y) {
 }
 
 // shuffle 
-template <> inline vec256_t vec_shuffle32<vec256_t>(vec256_t x, int imm) { 
+template <int imm> static inline vec256_t vec_shuffle32(vec256_t x) { 
     return _mm256_shuffle_epi32(x, imm); 
 }
-template <> inline vec128_t vec_shuffle32<vec128_t>(vec128_t x, int imm) { 
+template <int imm> static inline vec128_t vec_shuffle32(vec128_t x) { 
     return _mm_shuffle_epi32(x, imm); 
 }
 
 // permute
-template <> inline vec256_t vec_permute2x128<vec256_t>(vec256_t x, vec256_t y, int imm) { 
+template <int imm> static inline vec256_t vec_permute2x128(vec256_t x, vec256_t y) { 
     return _mm256_permute2x128_si256(x, y, imm); 
 } 
 
@@ -242,7 +242,7 @@ template <> inline vec128_t vec_cast_256_128<vec256_t, vec128_t>(vec256_t x) {
     return _mm256_castsi256_si128(x);
 }
 
-template <> inline vec128_t vec_extract_256_128<vec256_t, vec128_t>(vec256_t x, int index) {
+template <int index> static inline vec128_t vec_extract_256_128(vec256_t x) {
     return _mm256_extracti128_si256(x, index);
 }
 
@@ -389,7 +389,7 @@ template <> inline vec256_t vec_shift_right64<vec256_t>(vec256_t x, int shift) {
 }
  
 // AVX2 byte shifts are independent within each 128-bit half.
-template <> inline vec256_t vec_shift_right256<vec256_t>(vec256_t x, int shift) {
+template <int shift> static inline vec256_t vec_shift_right256(vec256_t x) {
     if (shift < 0 || shift >= 16) return zeros256;
     static constexpr uint8_t bytes[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
     uint8x16_t indices = vaddq_u8(
@@ -508,7 +508,7 @@ template <> inline vec256_t vec_clamp32<vec256_t>(vec256_t x, vec256_t min, vec2
 }
  
 // Fast paths for the two shuffles used by hsum_epi32.
-template <> inline vec128_t vec_shuffle32<vec128_t>(vec128_t x, int imm) {
+template <int imm> static inline vec128_t vec_shuffle32(vec128_t x) {
     // [src2,src3,src0,src1] == swap the two 64-bit halves
     if (imm == _MM_SHUFFLE(1, 0, 3, 2)) { 
         int64x2_t v = vreinterpretq_s64_s8(x);
@@ -522,13 +522,13 @@ template <> inline vec128_t vec_shuffle32<vec128_t>(vec128_t x, int imm) {
     return vreinterpretq_s8_s32(neon_detail::shuffle32(vreinterpretq_s32_s8(x), imm));
 }
 
-template <> inline vec256_t vec_shuffle32<vec256_t>(vec256_t x, int imm) {
-    return { vec_shuffle32<vec128_t>(x.lo, imm), vec_shuffle32<vec128_t>(x.hi, imm) };
+template <int imm> static inline vec256_t vec_shuffle32(vec256_t x) {
+    return { vec_shuffle32<imm>(x.lo), vec_shuffle32<imm>(x.hi) };
 }
  
 // permute (only ever called with imm 0x20 / 0x31 in this codebase, via activate_screlu64
 // both 0x20 and 0x31 are pure field selection, no computation
-template <> inline vec256_t vec_permute2x128<vec256_t>(vec256_t x, vec256_t y, int imm) {
+template <int imm> static inline vec256_t vec_permute2x128(vec256_t x, vec256_t y) {
     if (imm == 0x20) return { x.lo, y.lo };
     if (imm == 0x31) return { x.hi, y.hi };
     
@@ -577,7 +577,7 @@ template <> inline int64_t vec_convert_si128_64<vec128_t, int64_t>(vec128_t x) {
 }
  
 template <> inline vec128_t vec_cast_256_128<vec256_t, vec128_t>(vec256_t x) { return x.lo; }
-template <> inline vec128_t vec_extract_256_128<vec256_t, vec128_t>(vec256_t x, int index) {
+template <int index> static inline vec128_t vec_extract_256_128(vec256_t x) {
     return index == 0 ? x.lo : x.hi;
 }
  
