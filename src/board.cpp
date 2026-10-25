@@ -383,28 +383,23 @@ void Board::updateFiftyMoveCounter(int moved_piece, bool isCapture) {
         //zobrist_history.clear();
         return;
     }
-    
     currentGameState.fiftyMoveCounter++;
-
 }
 
 bool Board::isThreefold() {
-    int count = 0;
+    // Positions since the last irreversible move (the current position included);
+    // counting every match lets the compiler vectorize the scan.
+    const size_t size = zobrist_history.size();
+    const size_t lookback = std::min(static_cast<size_t>(currentGameState.fiftyMoveCounter) + 1, size);
+    const U64* history = zobrist_history.data() + (size - lookback);
+    const U64 hash = zobrist_hash;
 
-    // Number of positions to look back: since last irreversible move
-    size_t lookback = std::min(static_cast<size_t>(currentGameState.fiftyMoveCounter) + 1, zobrist_history.size());
+    size_t count = 0;
+    for (size_t i = 0; i < lookback; ++i)
+        count += (history[i] == hash);
 
-    // Iterate backwards over just those positions
-    for (size_t i = zobrist_history.size() - lookback; i < zobrist_history.size(); ++i) {
-        if (zobrist_history[i] == zobrist_hash)
-            count++;
-        if (count >= 3)
-            return true;
-    }
-
-    return false;
+    return count >= 3;
 }
-
 
 
 // ------------------------------------------------------------
@@ -694,6 +689,13 @@ void Board::initZobristKeys() {
         zobrist_enpassant[i] = rng();
 
     zobrist_side_to_move = rng();
+
+    for (int rights = 0; rights < 16; ++rights) {
+        U64 hash = 0;
+        for (int i = 0; i < 4; ++i)
+            if (rights & (1 << i)) hash ^= zobrist_castling[i];
+        zobrist_castling_rights[rights] = hash;
+    }
 }
 
 U64 Board::computeZobristHash() {
@@ -727,7 +729,7 @@ U64 Board::computeZobristHash() {
     return hash;
 }
 
-
+/*
 U64 Board::zobristCastlingHash(int castling_rights) {
     U64 hash = 0;
     if (castling_rights & 1) hash ^= zobrist_castling[0]; // K
@@ -735,6 +737,11 @@ U64 Board::zobristCastlingHash(int castling_rights) {
     if (castling_rights & 4) hash ^= zobrist_castling[2]; // k
     if (castling_rights & 8) hash ^= zobrist_castling[3]; // q
     return hash;
+}
+*/
+
+U64 Board::zobristCastlingHash(int castling_rights) {
+    return zobrist_castling_rights[castling_rights & 15];
 }
 
 void Board::auditZobrist(const Board &other, const std::string &label) const {

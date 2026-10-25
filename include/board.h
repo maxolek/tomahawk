@@ -48,6 +48,7 @@ public:
     // b-p = 0, w-p = 1, b-n = 2, w-n = 3, ... etc (black even, white odd .. incr val)
     U64 zobrist_side_to_move;        ///< Side to move key
     U64 zobrist_castling[4];         ///< Castling rights keys: KQkq
+    U64 zobrist_castling_rights[16]; ///< XOR of zobrist_castling keys for each rights mask
     U64 zobrist_enpassant[8];        ///< En passant file keys: a-h
 
     // -- polyglot book --
