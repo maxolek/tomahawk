@@ -424,7 +424,7 @@ void Engine::sendBestMove(Move best, bool eval, bool ponder) {
     Logging::logUCIout(best.uci());
 }
 
-void Engine::sendSearchInfo(SearchResult result) {
+void Engine::sendSearchInfo() {
     std::cout << "info";
     std::cout << " depth " << g_stats.max_completed_depth;
     std::cout << " qdepth " << g_stats.max_qdepth;

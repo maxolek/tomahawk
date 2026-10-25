@@ -509,7 +509,7 @@ inline void l2_avx2(const int32_t* x, const int64_t (*w_by_input)[L3_SIZE], int6
 
 // output layer: sum_i clamp(x[i], 0, cap)^2 * w[i], computed as c * (c * w)
 // so every product is exact (c * w fits 32 bits, the result is accumulated in 64)
-inline int64_t l3_screlu_avx2(const int32_t* x, const int32_t* w, const int32_t* bias, int32_t cap) {
+inline int64_t l3_screlu_avx2(const int32_t* x, const int32_t* w, int32_t cap) {
     static_assert(L3_SIZE % 8 == 0, "whole 8-lane vectors");
     static_assert(int64_t(QA) * QB * QC * 128 <= INT32_MAX, "c * w must fit a signed 32-bit lane");
 

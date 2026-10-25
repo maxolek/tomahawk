@@ -6,7 +6,6 @@ project(tomahawk LANGUAGES CXX)
 # -------------------
 # Usage:
 #   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVERSION=1.2.3
-#   cmake -S . -B build  -DCMAKE_BUILD_TYPE=Release -DVERSION=1.2.3
 #   cmake --build build
 #
 if (NOT DEFINED VERSION)
@@ -40,6 +39,7 @@ set(PROD_ENGINES_DIR ${ENGINES_DIR}/prod)
 # Source files
 # -------------------
 set(SOURCES
+    ${SRC_DIR}/affinity.cpp
     ${SRC_DIR}/board.cpp
     ${SRC_DIR}/book.cpp
     ${SRC_DIR}/engine.cpp

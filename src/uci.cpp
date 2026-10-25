@@ -320,7 +320,7 @@ void UCI::handleGo(std::istringstream& iss) {
     engine->startSearch();
     
     #ifdef DEV
-        engine->sendSearchInfo(engine->result);
+        engine->sendSearchInfo();
     #endif
     
     engine->sendBestMove(engine->bestMove, sendEval);

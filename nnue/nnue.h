@@ -114,7 +114,7 @@ public:
     void on_unmake_move_halfka(const Board& board, const Move& mv);
 
     // Build full accumulators from board
-    void build_halfka_accumulators(const Board& b) { build_halfka_accumulators(b, acc_state); };
+    void build_halfka_accumulators(const Board& b) { build_halfka_accumulators(acc_state, b); };
     void build_halfka_accumulators(AccumulatorStack& stack, const Board& b) const;
     // rebuild a single perspective (0 = white, 1 = black) of the current ply
     void refresh_perspective(AccumulatorStack& stack, const Board& b, int perspective) const;

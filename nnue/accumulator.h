@@ -5,29 +5,6 @@
 #include "simd.h"
 #include "utils.h"
 
-// Initial accumulator-stack depth; deeper searches grow the stack on demand.
-constexpr int ACC_STACK_RESERVE = 256;
-
-// Incremental accumulator state of one search thread: a [white, black] pair per
-// ply. Making a move writes the next ply from the current one and unmaking a move
-// steps back. Network weights are shared read-only; each thread owns its stack.
-struct AccumulatorStack {
-    struct alignas(64) Pair { Accumulator acc[2]; };
-    std::vector<Pair> entries = std::vector<Pair>(ACC_STACK_RESERVE);
-    int ply = 0;
-
-    Accumulator& white() { return entries[static_cast<size_t>(ply)].acc[0]; }
-    Accumulator& black() { return entries[static_cast<size_t>(ply)].acc[1]; }
-    const Accumulator& white() const { return entries[static_cast<size_t>(ply)].acc[0]; }
-    const Accumulator& black() const { return entries[static_cast<size_t>(ply)].acc[1]; }
-
-    // make sure ply + 1 exists (grows the stack for unusually deep lines)
-    void reserve_next() {
-        if (ply + 1 >= static_cast<int>(entries.size())) entries.resize(entries.size() * 2);
-    }
-    void pop() { --ply; }
-};
-
 
 // ============================================================
 // Accumulator: holds hidden activations BEFORE SCReLU
@@ -118,6 +95,34 @@ struct Accumulator {
         std::cout << "\n";
     }
 #endif
+};
+
+
+// ============================================================
+// Accumulator Stack
+// ============================================================
+
+// Initial accumulator-stack depth; deeper searches grow the stack on demand.
+constexpr int ACC_STACK_RESERVE = 256;
+
+// Incremental accumulator state of one search thread: a [white, black] pair per
+// ply. Making a move writes the next ply from the current one and unmaking a move
+// steps back. Network weights are shared read-only; each thread owns its stack.
+struct AccumulatorStack {
+    struct alignas(64) Pair { Accumulator acc[2]; };
+    std::vector<Pair> entries = std::vector<Pair>(ACC_STACK_RESERVE);
+    int ply = 0;
+
+    Accumulator& white() { return entries[static_cast<size_t>(ply)].acc[0]; }
+    Accumulator& black() { return entries[static_cast<size_t>(ply)].acc[1]; }
+    const Accumulator& white() const { return entries[static_cast<size_t>(ply)].acc[0]; }
+    const Accumulator& black() const { return entries[static_cast<size_t>(ply)].acc[1]; }
+
+    // make sure ply + 1 exists (grows the stack for unusually deep lines)
+    void reserve_next() {
+        if (ply + 1 >= static_cast<int>(entries.size())) entries.resize(entries.size() * 2);
+    }
+    void pop() { --ply; }
 };
 
 #endif // ACCUMULATOR_H

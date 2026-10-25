@@ -917,7 +917,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
         }
 
         // aspiration check
-        if (!limits.should_stop(depth) && (depth >= params.ASPIRATION_START_DEPTH)) {
+        if (!limits.should_stop(depth, (int)g_stats.nodes) && (depth >= params.ASPIRATION_START_DEPTH)) {
             if (iter_result.eval <= aspAlpha) {
                 #ifdef DEV
                     STATS_ASPIRATION_FAILLOW(depth);
@@ -958,7 +958,7 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
     nnue.build_halfka_accumulators(board);
 
     // --- iterative deepening loop ---
-    while (!limits.should_stop(depth)) {
+    while (!limits.should_stop(depth, (int)g_stats.nodes)) {
         #ifdef DEV
             auto depth_start = std::chrono::steady_clock::now();
         #endif

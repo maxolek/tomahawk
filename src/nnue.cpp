@@ -111,21 +111,22 @@ bool NNUE::load(const fs::path& path) {
 
 void NNUE::build_inference_layouts() {
     for (int b = 0; b < NUM_OUTPUT_BUCKETS; ++b) {
+
         for (int k = 0; k < L1_SIZE / 2; ++k) {
             for (int o = 0; o < L2_SIZE; ++o) {
                 l1w_pairs[b][k][2 * o]     = l1w[b * L2_SIZE + o][2 * k];
                 l1w_pairs[b][k][2 * o + 1] = l1w[b * L2_SIZE + o][2 * k + 1];
             }
         }
-    }
 
-    for (int i = 0; i < L2_SIZE; i++) {
-        for (int o = 0; o < L3_SIZE; o++) 
-            l2w_by_input[b][i][o] = l2w[b * L3_SIZE + o][i];
-    }
-    
-    for (int i = 0; i < L3_SIZE; i++) {
-        l3w_i32[b][i] = l3w[b][i];
+        for (int i = 0; i < L2_SIZE; i++) {
+            for (int o = 0; o < L3_SIZE; o++) 
+                l2w_by_input[b][i][o] = l2w[b * L3_SIZE + o][i];
+        }
+        
+        for (int i = 0; i < L3_SIZE; i++) {
+            l3w_i32[b][i] = l3w[b][i];
+        }
     }
 }
 
@@ -437,7 +438,7 @@ int NNUE::eval_simd(const AccumulatorStack& stack, bool is_white_move, U64 occ) 
 #if defined(__AVX2__)
 
     // ===== L1: accumulator -. hidden 1 (CReLU, pairwise multiply, sparse affine) =====
-    alginas(32) int32_t l1_sums[L2_SIZE];
+    alignas(32) int32_t l1_sums[L2_SIZE];
     l1_sparse_avx2(us->vals, them->vals, l1w_pairs[bucket], l1_sums);
     for (int o = 0; o < L2_SIZE; o++) {
         int64_t sum = l1_sums[o];
@@ -458,7 +459,7 @@ int NNUE::eval_simd(const AccumulatorStack& stack, bool is_white_move, U64 occ) 
     }
 
     // ===== L3: hidden 2 -. output (SCReLU fused into the affine transform / dot product) =====
-    int64_t out = l3_screlu_avx2(l3_in, l32_i32[bucket], QA*QB*QC);
+    int64_t out = l3_screlu_avx2(l3_in, l3w_i32[bucket], QA*QB*QC);
 #else
 
     alignas(32) int16_t us_act[L1_SIZE];
@@ -514,6 +515,7 @@ int NNUE::eval_simd(const AccumulatorStack& stack, bool is_white_move, U64 occ) 
 
     // weight transform 
     int64_t out = (int64_t)dot_i64_i8(l3_act, l3w[bucket], L3_SIZE);
+#endif
 
     out /= (int64_t)(QA * QB * QC); // (QA*QB*QC)*(QA*QB*QC)*QC -. QA*QB*QC*QC
     out += (int64_t)l3b[bucket];
@@ -599,13 +601,13 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
     int f_to_ntm   = feature_index_ntm_halfka(mv.TargetSquare(), moved_piece, piece_color, base_ntm, flip_ntm);
 
     // ---- Update both POV accumulators for the moved piece ----
-    //acc_stm.remove_feature(f_from_stm, l0w);
-    //acc_stm.add_feature(f_to_stm, l0w);
-    acc_stm.add_sub_feature(f_to_stm, f_from_stm, l0w);
+    //acc_stm().remove_feature(f_from_stm, l0w);
+    //acc_stm().add_feature(f_to_stm, l0w);
+    acc_stm().add_sub_feature(f_to_stm, f_from_stm, l0w);
 
-    //acc_ntm.remove_feature(f_from_ntm, l0w);
-    //acc_ntm.add_feature(f_to_ntm, l0w);
-    acc_ntm.add_sub_feature(f_to_ntm, f_from_ntm, l0w);
+    //acc_ntm().remove_feature(f_from_ntm, l0w);
+    //acc_ntm().add_feature(f_to_ntm, l0w);
+    acc_ntm().add_sub_feature(f_to_ntm, f_from_ntm, l0w);
 
     // Promotion: replace pawn feature with promoted piece (both POVs)
     if (promo) {
@@ -614,13 +616,13 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
         int f_promo_ntm = feature_index_ntm_halfka(mv.TargetSquare(), promo_piece, piece_color, base_ntm, flip_ntm);
 
         // remove pawn entry we just added, then add promoted piece
-        //acc_stm.remove_feature(f_to_stm, l0w);
-        //acc_stm.add_feature(f_promo_stm, l0w);
-        acc_stm.add_sub_feature(f_promo_stm, f_to_stm, l0w);
+        //acc_stm().remove_feature(f_to_stm, l0w);
+        //acc_stm().add_feature(f_promo_stm, l0w);
+        acc_stm().add_sub_feature(f_promo_stm, f_to_stm, l0w);
 
-        //acc_ntm.remove_feature(f_to_ntm, l0w);
-        //acc_ntm.add_feature(f_promo_ntm, l0w);
-        acc_ntm.add_sub_feature(f_promo_ntm, f_to_ntm, l0w);
+        //acc_ntm().remove_feature(f_to_ntm, l0w);
+        //acc_ntm().add_feature(f_promo_ntm, l0w);
+        acc_ntm().add_sub_feature(f_promo_ntm, f_to_ntm, l0w);
     }
 
     // ---- Captured piece: remove from BOTH accumulators ----
@@ -630,8 +632,8 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
         int cap_color = other_color(piece_color);
         int f_cap_ntm = feature_index_ntm_halfka(mv.TargetSquare(), captured_piece, cap_color, base_ntm, flip_ntm);
         int f_cap_stm = feature_index_stm_halfka(mv.TargetSquare(), captured_piece, cap_color, base_stm, flip_stm);
-        acc_ntm.remove_feature(f_cap_ntm, l0w);
-        acc_stm.remove_feature(f_cap_stm, l0w);
+        acc_ntm().remove_feature(f_cap_ntm, l0w);
+        acc_stm().remove_feature(f_cap_stm, l0w);
     }
 
     // ---- En passant: captured pawn is on cap_sq (remove from BOTH) ----
@@ -640,10 +642,10 @@ void NNUE::on_make_move_halfka(const Board& before, const Move& mv) {
         int cap_color = other_color(piece_color);
         int f_cap_ntm = feature_index_ntm_halfka(cap_sq, pawn, cap_color, base_ntm, flip_ntm);
         int f_cap_stm = feature_index_stm_halfka(cap_sq, pawn, cap_color, base_stm, flip_stm);
-        acc_ntm.remove_feature(f_cap_ntm, l0w);
-        acc_stm.remove_feature(f_cap_stm, l0w);
+        acc_ntm().remove_feature(f_cap_ntm, l0w);
+        acc_stm().remove_feature(f_cap_stm, l0w);
     }
-
+}
 
 void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
     bool promo = mv.IsPromotion();
@@ -680,19 +682,19 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
         int f_promo_ntm = feature_index_ntm_halfka(mv.TargetSquare(), promo_piece, piece_color, base_ntm, flip_ntm);
         int f_pawn_ntm  = feature_index_ntm_halfka(mv.StartSquare(), pawn, piece_color, base_ntm, flip_ntm);
 
-        //acc_stm.remove_feature(f_promo_stm, l0w);
-        //acc_stm.add_feature(f_pawn_stm, l0w);
-        acc_stm.add_sub_feature(f_pawn_stm, f_promo_stm, l0w);
-        //acc_ntm.remove_feature(f_promo_ntm, l0w);
-        //acc_ntm.add_feature(f_pawn_ntm, l0w);
-        acc_ntm.add_sub_feature(f_pawn_ntm, f_promo_ntm, l0w);
+        //acc_stm().remove_feature(f_promo_stm, l0w);
+        //acc_stm().add_feature(f_pawn_stm, l0w);
+        acc_stm().add_sub_feature(f_pawn_stm, f_promo_stm, l0w);
+        //acc_ntm().remove_feature(f_promo_ntm, l0w);
+        //acc_ntm().add_feature(f_pawn_ntm, l0w);
+        acc_ntm().add_sub_feature(f_pawn_ntm, f_promo_ntm, l0w);
     } else {
-        //acc_stm.remove_feature(f_to_stm, l0w);
-        //acc_stm.add_feature(f_from_stm, l0w);
-        acc_stm.add_sub_feature(f_from_stm, f_to_stm, l0w);
-        //acc_ntm.remove_feature(f_to_ntm, l0w);
-        //acc_ntm.add_feature(f_from_ntm, l0w);
-        acc_ntm.add_sub_feature(f_from_ntm, f_to_ntm, l0w);
+        //acc_stm().remove_feature(f_to_stm, l0w);
+        //acc_stm().add_feature(f_from_stm, l0w);
+        acc_stm().add_sub_feature(f_from_stm, f_to_stm, l0w);
+        //acc_ntm().remove_feature(f_to_ntm, l0w);
+        //acc_ntm().add_feature(f_from_ntm, l0w);
+        acc_ntm().add_sub_feature(f_from_ntm, f_to_ntm, l0w);
     }
 
     // Undo captures
@@ -703,8 +705,8 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
         int f_cap_stm = feature_index_stm_halfka(cap_sq, captured_piece, cap_color, base_stm, flip_stm);
         int f_cap_ntm = feature_index_ntm_halfka(cap_sq, captured_piece, cap_color, base_ntm, flip_ntm);
 
-        acc_stm.add_feature(f_cap_stm, l0w);
-        acc_ntm.add_feature(f_cap_ntm, l0w);
+        acc_stm().add_feature(f_cap_stm, l0w);
+        acc_ntm().add_feature(f_cap_ntm, l0w);
     }
 
     // Undo en passant
@@ -716,8 +718,8 @@ void NNUE::on_unmake_move_halfka(const Board& board, const Move& mv) {
         int f_cap_stm = feature_index_stm_halfka(cap_sq, pawn, cap_color, base_stm, flip_stm);
         int f_cap_ntm = feature_index_ntm_halfka(cap_sq, pawn, cap_color, base_ntm, flip_ntm);
 
-        acc_stm.add_feature(f_cap_stm, l0w);
-        acc_ntm.add_feature(f_cap_ntm, l0w);
+        acc_stm().add_feature(f_cap_stm, l0w);
+        acc_ntm().add_feature(f_cap_ntm, l0w);
     }
 
 }
