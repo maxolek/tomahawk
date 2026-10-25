@@ -8,20 +8,22 @@ struct SearchLimits {
     static constexpr uint32_t TIME_POLL_INTERVAL = 1024;
 
     std::chrono::steady_clock::time_point start_time;
-    int node_limit;
+
     int time_limit_ms;
     int max_depth = MAX_DEPTH;
+    int node_limit;
+    
     bool stopped;
     uint32_t poll_count = 0;
     // Stop request shared by all threads of one search (optional). Each thread
     // searches with its own copy of the limits; the flag makes them all stop.
     std::atomic<bool>* stop_signal = nullptr;
 
-    SearchLimits(int n = 0, int ms = 0, int depth = -1)
+    SearchLimits(int ms = 0, int depth = -1, int n = 0)
         : start_time(std::chrono::steady_clock::now()),
-          node_limit(n),
           time_limit_ms(ms),
           max_depth(depth < 0 ? MAX_DEPTH : depth),
+          node_limit(n),
           stopped(false) {}
 
     inline bool out_of_time() {
