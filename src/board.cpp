@@ -26,7 +26,6 @@ Board::Board(const Board& other) {
     is_white_move = other.is_white_move;
     move_color = other.move_color;
     allGameMoves = other.allGameMoves;       // deep copy
-    hash_history = other.hash_history;       // deep copy
     zobrist_history = other.zobrist_history; // deep copy
     gameStateHistory = other.gameStateHistory;
 
@@ -134,7 +133,6 @@ void Board::MakeMove(Move move) {
     is_white_move = !is_white_move;
     move_color = 1 - move_color;
 
-    hash_history[zobrist_hash]++;
     zobrist_history.push_back(zobrist_hash);
     gameStateHistory.push_back(currentGameState);
 }
@@ -144,19 +142,9 @@ void Board::UnmakeMove(Move move) {
         ScopedTimer timer(T_UNMAKE_MOVE);
     #endif
 
-    auto it = hash_history.find(zobrist_hash);
-    if (it != hash_history.end()) {
-        it->second--;
-        if (it->second <= 0)
-            hash_history.erase(it);
+    // every MakeMove pushed exactly one entry for the position being left
+    if (!zobrist_history.empty())
         zobrist_history.pop_back();
-    } //else {
-        // Optional: error check
-        //std::cerr << "UnmakeMove: hash not found in history!\n";
-        // Maybe abort or handle gracefully
-    //}
-
-    //if (hash_history[zobrist_hash] < 0) {std::cout << "tf" << std::endl; exit(0);}
 
     int new_castling = currentGameState.castlingRights;
 
@@ -263,7 +251,6 @@ void Board::MakeNullMove() {
     // track history for NMP-tree TT
     // wont plague regular TT since STM is flipped so hash's will never match
     gameStateHistory.push_back(currentGameState);
-    //hash_history[zobrist_hash]++;
     //zobrist_history.push_back(zobrist_hash);
     allGameMoves.push_back(Move::NullMove());
     //gameStateHistory.push_back(currentGameState);
@@ -274,15 +261,6 @@ void Board::MakeNullMove() {
 
 void Board::UnmakeNullMove() {
     //ScopedTimer timer(T_UNMAKENULLMOVE);
-
-    // undo hash history
-    //auto it = hash_history.find(zobrist_hash);
-    //if (it != hash_history.end()) {
-    //    it->second--;
-    //   if (it->second <= 0)
-    //        hash_history.erase(it);
-    //}
-    //zobrist_history.pop_back();
 
     // flip STM back
     zobrist_hash ^= zobrist_side_to_move;
@@ -363,19 +341,6 @@ void Board::PromoteToPiece(int piece, int target_square) {
 // ------------------------------------------------------------
 // Piece / square queries
 // ------------------------------------------------------------
-int Board::getMovedPiece(int start_square) const {
-    for (int piece=0; piece<6; piece++)
-        if (get_bit(pieceBitboards[piece], start_square))
-            return piece;
-    return -1;
-}
-
-int Board::getCapturedPiece(int target_square) const {
-    for (int piece=0; piece<6; piece++)
-        if (get_bit(pieceBitboards[piece], target_square))
-            return piece;
-    return -1;
-}
 
 int Board::getSideAt(int square) const {
     for (int side=0; side<2; side++)
@@ -491,7 +456,6 @@ bool Board::givesCheck(Move move) {
 std::string Board::getBoardFEN() { setBoardFEN(); return fen; }
 
 void Board::setFromFEN(std::string _fen) {
-    hash_history.clear();
     zobrist_history.clear();
 
     std::istringstream fenStream(_fen);
@@ -540,7 +504,6 @@ void Board::setFromFEN(std::string _fen) {
 
     initZobristKeys();
     zobrist_hash = computeZobristHash();
-    hash_history[zobrist_hash]++;
     zobrist_history.push_back(zobrist_hash);
 }
 

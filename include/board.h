@@ -35,7 +35,6 @@ public:
     // ==================== Move & position history ====================
     std::vector<Move> allGameMoves;            ///< All moves played
     std::vector<GameState> gameStateHistory;  ///< Game state history for unmaking moves
-    std::unordered_map<U64,int> hash_history; ///< Zobrist hash occurrences for repetition detection
     std::vector<U64> zobrist_history;
 
     // ==================== Castling trackers ====================
@@ -83,8 +82,16 @@ public:
     void PromoteToPiece(int piece, int target); ///< Promote pawn to another piece
 
     // ==================== Piece queries ====================
-    int getMovedPiece(int start_square) const;
-    int getCapturedPiece(int target_square) const;
+    // Piece type (0..5) on a square according to the bitboards, or -1 if empty.
+    // Branch-free; if several bitboards claimed the square the lowest type wins.
+    inline int pieceTypeAt(int square) const {
+        unsigned found = 0;
+        for (int piece = 0; piece < 6; piece++)
+            found |= static_cast<unsigned>((pieceBitboards[piece] >> square) & 1ULL) << piece;
+        return found ? __builtin_ctz(found) : -1;
+    }
+    int getMovedPiece(int start_square) const { return pieceTypeAt(start_square); }
+    int getCapturedPiece(int target_square) const { return pieceTypeAt(target_square); }
     int getSideAt(int square) const;
     int getPieceAt(int square, int side) const;
     int kingSquare(bool white) const;
@@ -110,9 +117,7 @@ public:
     U64 zobristCastlingHash(int castling_rights); ///< Hash from castling rights
     void auditZobrist(const Board &other, const std::string &label = "") const;
     void debugZobristDifference(uint64_t old_hash, uint64_t new_hash);
-    void print_zobrist_history(int ply, const std::string& move_str);
-    bool canEPCapture(); // check if ep is legal when possible - zobrist 
-    bool isEpHashable(int epFile, bool stmIsWhite) const; // incremental version
+   
     // polyglot
     //void initPolyglotKeys();                    ///< Initialize Zobrist keys
     //U64 computePolyglotHash();                  ///< Compute current Zobrist hash
