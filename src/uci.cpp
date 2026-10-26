@@ -323,7 +323,7 @@ void UCI::handleGo(std::istringstream& iss) {
     }
 
     const bool evalRequest = sendEval;
-    serach_thread = std::thread([this, evalRequest] () {
+    search_thread = std::thread([this, evalRequest] () {
         runSearch(evalRequest);
     });
 }
