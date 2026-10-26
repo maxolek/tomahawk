@@ -128,11 +128,12 @@ void UCI::handleCommand(const std::string& line) {
     }
     else if (token == "stop") {
         engine->stopSearch();
-        std::string best = engine->bestMove.uci();
-        std::cout << "bestmove " << best << "\n";
+        if (search_thread.joinable()) search_thread.join();
+        std::cout << "bestmove " << engine->bestMove.uci() << "\n";
     }
     else if (token == "quit") {
         engine->stopSearch();
+        if (search_thread.joinable()) search_thread.join();
     }
     else if (token == "config") { // see config options and apply
         fs::path dir = fs::path(PROJECT_ROOT) / "bin/configs";
@@ -316,16 +317,25 @@ void UCI::handleGo(std::istringstream& iss) {
     engine->settings.infinite = infinite;
 
     // Otherwise start a normal search
-    engine->trackGame();
-    engine->startSearch();
-    
-    #ifdef DEV
-        engine->sendSearchInfo();
-    #endif
-    
-    engine->sendBestMove(engine->bestMove, sendEval);
+    if (search_thread.joinable()) {
+        engine->stopSearch();
+        search_thread.join();
+    }
+
+    const bool evalRequest = sendEval;
+    serach_thread = std::thread([this, evalRequest] () {
+        runSearch(evalRequest);
+    });
 }
 
+void UCI::runSearch(bool evalRequest) {
+    engine->trackGame();
+    engine->startSearch();
+#ifdef DEV
+    engine->sendSearchInfo();
+#endif
+    engine->sendBestMove(engine->bestMove, sendEval);
+}
 
 // test funcs
 
