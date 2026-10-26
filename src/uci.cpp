@@ -36,6 +36,9 @@ UCI::UCI(Engine& eng) {
     engine=&eng;
 }  
 
+UCI::~UCI() {
+}
+
 void UCI::loop() {
     std::string line;
     bool isRunning = true;

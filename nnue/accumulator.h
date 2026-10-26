@@ -5,7 +5,6 @@
 #include "simd.h"
 #include "utils.h"
 
-
 // ============================================================
 // Accumulator: holds hidden activations BEFORE SCReLU
 // ============================================================
@@ -25,7 +24,7 @@ struct Accumulator {
         #endif
     }
 
-    inline void add_feature(int feature_idx, int16_t (*W)[L1_SIZE]) {
+    inline void add_feature(int feature_idx, const int16_t (*W)[L1_SIZE]) {
         const int16_t* col = W[feature_idx];
 
         add_feature_simd(col, vals);
@@ -37,7 +36,7 @@ struct Accumulator {
         #endif
     }
 
-    inline void remove_feature(int feature_idx, int16_t (*W)[L1_SIZE]) {
+    inline void remove_feature(int feature_idx, const int16_t (*W)[L1_SIZE]) {
         const int16_t* col = W[feature_idx];
 
         remove_feature_simd(col, vals);
@@ -51,7 +50,7 @@ struct Accumulator {
 
     // typical moves perform both of these
     // so combine to best utilize SIMD
-    inline void add_sub_feature(int add_idx, int sub_idx, int16_t (*W)[L1_SIZE]) {
+    inline void add_sub_feature(int add_idx, int sub_idx, const int16_t (*W)[L1_SIZE]) {
         const int16_t* add_col = W[add_idx];
         const int16_t* sub_col = W[sub_idx];
 
@@ -60,27 +59,26 @@ struct Accumulator {
         //remove_feature(sub_idx, W);
     }
 
-    // this = src + W[add] - W[sub1] (- W[sub2] when sub >= 0), in a signel pass
+    // this = src + W[add] - W[sub1] (- W[sub2] when sub2 >= 0), in a single pass
     inline void copy_update(const Accumulator& src, int add, int sub1, int sub2, const int16_t (*W)[L1_SIZE]) {
-        if (sub2 >= 0)  copy_add_sub_sub_simd(src.vals, vals, W[add], W[sub1], W[sub2]);
-        else            copy_add_sub_simd(src.vals, vals, W[add], W[sub1]);
+        if (sub2 >= 0) copy_add_sub_sub_simd(src.vals, vals, W[add], W[sub1], W[sub2]);
+        else           copy_add_sub_simd(src.vals, vals, W[add], W[sub1]);
 
-        #ifdef DEBUG 
+        #ifdef DEBUG
             active_features = src.active_features;
             active_features.insert(add);
             active_features.erase(sub1);
             if (sub2 >= 0) active_features.erase(sub2);
-        #endif 
+        #endif
     }
 
-    // this = bias + sum of W[features[i]] 
+    // this = bias + sum of W[features[i]]
     inline void refresh(const int16_t* bias, const int16_t (*W)[L1_SIZE], const int* features, int count) {
         refresh_simd(vals, bias, W, features, count);
 
         #ifdef DEBUG
             active_features.clear();
-            for (int f : features)
-                active_features.insert(f);
+            for (int i = 0; i < count; ++i) active_features.insert(features[i]);
         #endif
     }
 
@@ -96,11 +94,6 @@ struct Accumulator {
     }
 #endif
 };
-
-
-// ============================================================
-// Accumulator Stack
-// ============================================================
 
 // Initial accumulator-stack depth; deeper searches grow the stack on demand.
 constexpr int ACC_STACK_RESERVE = 256;
