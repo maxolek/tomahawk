@@ -199,9 +199,3 @@ Provides:
 - visualization tools
 
 ---
-
-<div align="center">
-
-Built with C++ and a lot of chess.
-
-</div>

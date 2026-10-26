@@ -6,7 +6,7 @@
 #include <iostream>
 
 // search statistics, one record per thread (declared in search_stats.h)
-thread_local SearchStats g_stats;
+thread_local SearchStats g_stats{};
 
 // ============================================================================
 // Construction / small helpers
@@ -383,7 +383,7 @@ void Searcher::verify_accumulators(const Move& move) {
 // ============================================================================
 
 int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int ply, int depth, int search_depth, bool& tainted) {
-    if (limits.out_of_time()) return alpha;
+    if (limits.poll_out_of_time()) return alpha;
     tainted = false;
 
     // draw detection
@@ -440,7 +440,7 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
     bool child_tainted = false;
 
     for (int i = 0; i < count; i++) {
-        if (limits.out_of_time()) break;
+        if (limits.poll_out_of_time()) break;
 
         Move m = moves[i];
         if (shouldPrune(m, standPat, alpha, search_depth, ply)) continue;
@@ -493,7 +493,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         STATS_NODE(depth+ply, ply); // track node per depth
     #endif
     nodes++;
-    if (limits.out_of_time()) return alpha;
+    if (limits.poll_out_of_time()) return alpha;
 
     // --- end of search conditions ---
 
@@ -614,6 +614,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
 
         // null moves just change the side to move (and last-move cache)
         board.MakeNullMove();
+        tt.prefetch(board.zobrist_hash);
         int null_score = -negamax(depth - params.R_NMP, -beta, -(beta - 1), emptyPV, previousPV, limits, ply + 1, false, nmp_tainted);
         board.UnmakeNullMove();
 
@@ -665,7 +666,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
     // --- move loop ---
 
     for (int i = 0; i < count; i++) {
-        if (limits.out_of_time()) break;
+        if (limits.poll_out_of_time()) break;
 
         m = moves[i];
 
@@ -675,7 +676,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         is_king_move = board.getMovedPiece(m.StartSquare()) == king;
         build_accums = update_kings(is_king_move, m);
         
-        score = 0; childPV = {}; emptyPV = {};
+        score = 0; childPV.clear(); emptyPV.clear();
 
         // ------------------------------------
         // Futility Pruning (aka late move pruning)
@@ -773,6 +774,9 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
 
         alpha = std::max(alpha, bestEval);
         if (alpha >= beta) {
+            // a stopped child returns a bound, not a score: do not learn from it
+            if (limits.stopped) return bestEval;
+
             #ifdef DEV
                 STATS_FAILHIGH(depth+ply, ply, i);
             #endif
@@ -1068,8 +1072,8 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
             g_stats.it_depth_move[depth] = result.bestMove;
             g_stats.it_depth_time_ms[depth] = std::chrono::duration_cast<std::chrono::milliseconds>(depth_end - depth_start).count();
 
-            // log per-root-move timing data
-            logRootMoves(result, depth);
+            // log per-root-move timing data (main search thread only)
+            if (is_main) logRootMoves(result, depth);
         #endif
 
         if (std::abs(result.eval) >= MATE_SCORE - 10) break;
@@ -1111,23 +1115,19 @@ bool Searcher::update_kings(const bool& is_king_move, const Move& move) {
     if (!is_king_move)
         return false;
 
-    const int old_sq = move.StartSquare();
-    const int new_sq = move.TargetSquare();
+    // castling also moves a rook, which the incremental update does not cover
+    if (move.MoveFlag() == Move::castleFlag)
+        return true;
 
-    // STM perspective
-    const bool stm_changed =
-        mirrored_bucket(old_sq) != mirrored_bucket(new_sq) ||
-        mirrored_flip(old_sq)   != mirrored_flip(new_sq);
+    // A king only sets the input bucket and mirror of its own side's perspective:
+    // white uses the raw square, black the vertically flipped one. (Rebuilding and
+    // updating produce identical accumulators, so this only decides the cheaper path.)
+    const int flip = board.is_white_move ? 0 : 56;
+    const int old_sq = move.StartSquare() ^ flip;
+    const int new_sq = move.TargetSquare() ^ flip;
 
-    // NTM perspective
-    const int old_ntm_sq = old_sq ^ 56;
-    const int new_ntm_sq = new_sq ^ 56;
-
-    const bool ntm_changed =
-        mirrored_bucket(old_ntm_sq) != mirrored_bucket(new_ntm_sq) ||
-        mirrored_flip(old_ntm_sq)   != mirrored_flip(new_ntm_sq);
-
-    return stm_changed || ntm_changed;
+    return mirrored_bucket(old_sq) != mirrored_bucket(new_sq) ||
+           mirrored_flip(old_sq)   != mirrored_flip(new_sq);
 }
 
 void Searcher::perform_move(Board& boardRef, const Move& move, const bool update_kings, const bool prefetch_tt) {
