@@ -16,6 +16,7 @@ public:
 
     void loop();
     void runSearch(bool evalRequest);
+    void waitForSearch();
 
     void handleCommand(const std::string& line);
     void handlePosition(std::istringstream& iss);

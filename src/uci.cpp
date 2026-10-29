@@ -130,6 +130,7 @@ void UCI::handleCommand(const std::string& line) {
         handleSetOption(iss);
     }
     else if (token == "ucinewgame") {
+        waitForSearch();
         engine->newGame();
     }
     else if (token == "position") { // start all search/tests/everything after set_position
@@ -352,6 +353,13 @@ void UCI::runSearch(bool evalRequest) {
     engine->sendSearchInfo();
 #endif
     engine->sendBestMove(engine->bestMove, evalRequest);
+}
+
+void UCI::waitForSearch() {
+    if (!search_thread.joinable()) return;
+    if (search_active.load(std::memory_order_relaxed))
+        engine->stopSearch();
+    search_thread.join();
 }
 
 // test funcs
