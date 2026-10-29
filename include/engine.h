@@ -148,6 +148,7 @@ public:
 
     // --- Search  ---
     void startSearch();
+    void resetSearchStop();
     void stopSearch();
     void computeSearchTime(const SearchSettings& settings); // defines the settings for it_dp
     // threads

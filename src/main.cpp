@@ -1,11 +1,8 @@
-#include <UCI.h>
+#include <uci.h>
 #include <session.h>
 #include <engine.h>
 #include <board.h>
 #include <precomp.h>
-#include <iostream>
-#include <atomic>
-#include <thread>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -45,26 +42,6 @@ void set_thread_precendence() {
 }
 
 // ---------------------
-// UCI listening loop
-// ---------------------
-std::atomic<bool> keepListening(true);
-
-void listenLoop(UCI& uci) {
-    std::string line;
-    while (keepListening) {
-        if (!std::getline(std::cin, line)) {
-            keepListening = false;
-            break;
-        }
-        uci.handleCommand(line);
-        if (line == "quit") {
-            keepListening = false;
-            break;
-        }
-    }
-}
-
-// ---------------------
 // main
 // ---------------------
 int main() {
@@ -86,13 +63,8 @@ int main() {
     static Engine engine;
     UCI uci(engine);
 
-    // uci loop
-    // searches run on this listener thread, never on the initial thread
-    // on linux the initial thread's affinity is read as "the CPUs the process was given" (affinity.cpp)
-    std::thread listener([&uci](){
-        uci.loop(); // loop internally
-    });
-    listener.join();
+    // Searches run on a worker thread while this loop continues reading commands.
+    uci.loop();
 
     return 0;
 }

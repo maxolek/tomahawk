@@ -42,8 +42,8 @@ struct SearchLimits {
         return false;
     }
 
-    // Hot-path variant of out_of_time(): a stop that has already been detected is
-    // reported immediately, but the clock itself is sampled only periodically.
+    // Hot-path variant of out_of_time(): time and external stop requests are
+    // checked only periodically.
     inline bool poll_out_of_time() {
         if (stopped) return true;
         if (++poll_count & (TIME_POLL_INTERVAL - 1)) return false;

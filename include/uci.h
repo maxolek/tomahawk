@@ -7,6 +7,7 @@
 #include <string>
 #include <sstream>
 #include <iostream>
+#include <atomic>
 
 class UCI {
 public:
@@ -29,6 +30,7 @@ public:
 private:
     Engine* engine;
     std::thread search_thread;
+    std::atomic<bool> search_active{false};
 
     bool sendEval = false;
     int wtime = 0, btime = 0, winc = 0, binc = 0, movetime = -1, depth = -1;

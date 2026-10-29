@@ -292,6 +292,11 @@ void Engine::computeSearchTime(const SearchSettings& search_settings) {
 
     int movesToGo = search_settings.movestogo > 0 ? search_settings.movestogo : 20;
 
+    if (search_settings.infinite) {
+        limits = SearchLimits(0, search_settings.depth, search_settings.nodes);
+        return;
+    }
+
     // hard coded time/depth/nodes limits
     if (search_settings.movetime > 0 || search_settings.depth > 0 || search_settings.nodes > 0) {
         limits = SearchLimits(
@@ -394,6 +399,8 @@ void Engine::startSearch() {
     limits.stop_signal = &threads.stop_signal;
     threads.start(search_board, limits, searcher->params, placement);
     result = searcher->iterativeDeepening(first_moves, count, limits);
+    if (count > 0 && Move::SameMove(result.bestMove, Move::NullMove()))
+        result.bestMove = first_moves[0];
     threads.stop_and_wait();
     if (threads.placement_failures() != affinity_failures) {
         affinity_failures = threads.placement_failures();
@@ -426,8 +433,11 @@ void Engine::startSearch() {
     #endif 
 }
 
+void Engine::resetSearchStop() {
+    threads.stop_signal.store(false, std::memory_order_relaxed);
+}
+
 void Engine::stopSearch() {
-    limits.stopped = true;
     threads.stop_signal.store(true, std::memory_order_relaxed);
     tracker.result = GameResult::ABORTED;
     tracker.reason = GameEndReason::NONE;

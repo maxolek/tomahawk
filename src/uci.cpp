@@ -37,21 +37,30 @@ UCI::UCI(Engine& eng) {
 }  
 
 UCI::~UCI() {
+    if (search_thread.joinable()) {
+        if (search_active.load(std::memory_order_relaxed))
+            engine->stopSearch();
+        search_thread.join();
+    }
 }
 
 void UCI::loop() {
     std::string line;
-    bool isRunning = true;
-
-    while (isRunning && std::getline(std::cin, line)) {
+    while (std::getline(std::cin, line)) {
         if (line.empty()) continue;
 
+        std::istringstream command(line);
+        std::string token;
+        command >> token;
         handleCommand(line);
 
-        if (line == "quit") {
-            isRunning = false;
-            exit(0);
-        }
+        if (token == "quit") break;
+    }
+
+    if (search_thread.joinable()) {
+        if (search_active.load(std::memory_order_relaxed))
+            engine->stopSearch();
+        search_thread.join();
     }
 }
 
@@ -130,12 +139,13 @@ void UCI::handleCommand(const std::string& line) {
         handleGo(iss);
     }
     else if (token == "stop") {
-        engine->stopSearch();
+        if (search_active.load(std::memory_order_relaxed))
+            engine->stopSearch();
         if (search_thread.joinable()) search_thread.join();
-        std::cout << "bestmove " << engine->bestMove.uci() << "\n";
     }
     else if (token == "quit") {
-        engine->stopSearch();
+        if (search_active.load(std::memory_order_relaxed))
+            engine->stopSearch();
         if (search_thread.joinable()) search_thread.join();
     }
     else if (token == "config") { // see config options and apply
@@ -321,13 +331,17 @@ void UCI::handleGo(std::istringstream& iss) {
 
     // Otherwise start a normal search
     if (search_thread.joinable()) {
-        engine->stopSearch();
+        if (search_active.load(std::memory_order_relaxed))
+            engine->stopSearch();
         search_thread.join();
     }
 
     const bool evalRequest = sendEval;
+    engine->resetSearchStop();
+    search_active.store(true, std::memory_order_relaxed);
     search_thread = std::thread([this, evalRequest] () {
         runSearch(evalRequest);
+        search_active.store(false, std::memory_order_relaxed);
     });
 }
 
@@ -337,7 +351,7 @@ void UCI::runSearch(bool evalRequest) {
 #ifdef DEV
     engine->sendSearchInfo();
 #endif
-    engine->sendBestMove(engine->bestMove, sendEval);
+    engine->sendBestMove(engine->bestMove, evalRequest);
 }
 
 // test funcs

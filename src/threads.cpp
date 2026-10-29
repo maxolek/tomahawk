@@ -84,7 +84,6 @@ void SearchThreadPool::set_helpers(int count, NNUE& nnue, TranspositionTable& tt
 
 void SearchThreadPool::start(const Board& root, const SearchLimits& limits, const SearchParams& params,
                              const affinity::Plan& placement) {
-    stop_signal.store(false, std::memory_order_relaxed);
     static const std::vector<int> unpinned;
     auto slot = [&](const std::vector<std::vector<int>>& sets, size_t i) -> const std::vector<int>& {
         return i < sets.size() ? sets[i] : unpinned;

@@ -71,8 +71,8 @@ public:
     void set_helpers(int count, NNUE& nnue, TranspositionTable& tt);
     int helper_count() const { return static_cast<int>(helpers.size()); }
 
-    // Clears the stop signal and starts every helper on `root`. Helper i runs on
-    // placement.threads[i + 1]; index 0 is the calling (main) thread.
+    // Starts every helper on `root`; the caller clears the stop signal before
+    // launching a search. Helper i runs on placement.threads[i + 1].
     void start(const Board& root, const SearchLimits& limits, const SearchParams& params,
                const affinity::Plan& placement);
     // Raises the stop signal and waits for every helper to return.
