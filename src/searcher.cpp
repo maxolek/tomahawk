@@ -384,6 +384,10 @@ void Searcher::verify_accumulators(const Move& move) {
 
 int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int ply, int depth, int search_depth, bool& tainted) {
     if (limits.poll_out_of_time()) return alpha;
+    #ifdef DEV
+        STATS_QNODE(search_depth, ply); 
+    #endif 
+    nodes++;
     tainted = false;
 
     // draw detection
@@ -418,11 +422,6 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
     if (standPat > alpha) alpha = standPat;
 
     //return standPat;
-
-    #ifdef DEV
-        STATS_QNODE(search_depth, ply); 
-    #endif 
-    nodes++;
 
     // generate only captures/promotions 
     int count = movegen.generateMoves(board, true);
@@ -485,15 +484,15 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
 int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                       std::vector<Move>& previousPV, SearchLimits& limits, int ply, 
                       bool can_nmp, bool& tainted) {
-    int  f_prune = 0; // flag for futility pruning
-    bool is_king_move = false;
-    bool build_accums = false;
-    tainted = false;
+    if (limits.poll_out_of_time()) return alpha;
     #ifdef DEV
         STATS_NODE(depth+ply, ply); // track node per depth
     #endif
     nodes++;
-    if (limits.poll_out_of_time()) return alpha;
+    int  f_prune = 0; // flag for futility pruning
+    bool is_king_move = false;
+    bool build_accums = false;
+    tainted = false;
 
     // --- end of search conditions ---
 
