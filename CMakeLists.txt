@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(tomahawk LANGUAGES CXX)
 
+option(SMALL_NET "Build with the direct-output small NNUE network" OFF)
+
 # -------------------
 # Version
 # -------------------
@@ -57,6 +59,10 @@ set(SOURCES
 
 add_executable(tomahawk ${SOURCES})
 
+if (SMALL_NET)
+    target_compile_definitions(tomahawk PRIVATE SMALL_NET)
+endif()
+
 target_include_directories(tomahawk PRIVATE 
     ${INCLUDE_DIR}
     ${NNUE_DIR}
@@ -92,9 +98,9 @@ elseif (UNIX)
 endif()
 
 # flags
-set(TOMAHAWK_LTO_FLAG -flto)
+set(LTO_FLAG -flto)
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    set(TOMAHAWK_LTO_FLAG -flto=auto)
+    set(LTO_FLAG -flto=auto)
 endif()
 
 # type - Default to Release
@@ -133,7 +139,7 @@ elseif (CMAKE_BUILD_TYPE STREQUAL "Profile")
         -march=native
         #-mbmi2
         #-mavx2
-        ${TOMAHAWK_LTO_FLAG}
+        ${LTO_FLAG}
         -g
         -fno-omit-frame-pointer
     )
@@ -147,7 +153,7 @@ elseif (CMAKE_BUILD_TYPE STREQUAL "DEV")
         -march=native
         #-mbmi2
         #-mavx2
-        ${TOMAHAWK_LTO_FLAG}
+        ${LTO_FLAG}
     )
     target_compile_definitions(tomahawk PRIVATE DEV)
 
@@ -159,7 +165,7 @@ else()
         -march=native
         #-mbmi2
         #-mavx2
-        ${TOMAHAWK_LTO_FLAG}
+        ${LTO_FLAG}
     )
 endif()
 

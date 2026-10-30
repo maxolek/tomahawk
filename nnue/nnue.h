@@ -89,11 +89,15 @@ public:
     int eval_simd(bool is_white_move, U64 occ) { return eval_simd(acc_state, is_white_move, occ); }
     int eval_simd(const AccumulatorStack& stack, bool is_white_move, U64 occ) const;
     int full_eval(const Board& b);
-    // Direct SCReLU -> output forward passes, available for alternate heads.
-    // Supply decoded output-major weights and matching quantization; the active
-    // loader and multi-layer evaluation do not populate or select this head.
-    int eval_screlu(bool is_white_move, U64 occ);
-    int eval_screlu_simd(bool is_white_move, U64 occ);
+    // Direct SCReLU -> output head for the small network.
+    int eval_screlu(const AccumulatorStack& stack, bool is_white_move, U64 occ) const;
+    int eval_screlu(bool is_white_move, U64 occ) const {
+        return eval_screlu(acc_state, is_white_move, occ);
+    }
+    int eval_screlu_simd(const AccumulatorStack& stack, bool is_white_move, U64 occ) const;
+    int eval_screlu_simd(bool is_white_move, U64 occ) const {
+        return eval_screlu_simd(acc_state, is_white_move, occ);
+    }
 
     // Accumulator stack (search). Every push is undone by stack.pop().
     //   move_delta + push_delta: incremental update; the delta is computed from the
@@ -145,5 +149,4 @@ public:
 #endif
 
 };
-
 

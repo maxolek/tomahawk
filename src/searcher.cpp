@@ -350,11 +350,18 @@ int Searcher::generateAndOrderMoves(Move moves[MAX_MOVES], int ply, const Move t
 // NNUE score of the current position from the side to move's perspective.
 inline int Searcher::evaluate_position() {
     const U64 occ = board.colorBitboards[0] | board.colorBitboards[1];
+#ifdef SMALL_NET
+    const int eval = nnue.eval_screlu_simd(acc, board.is_white_move, occ);
+#else
     const int eval = nnue.eval_simd(acc, board.is_white_move, occ);
-    //const int eval = nnue.eval_screlu_simd(board.is_white_move, occ);
+#endif
 
-#ifdef TOMAHAWK_VERIFY_NNUE
+#ifdef VERIFY_NNUE
+#ifdef SMALL_NET
+    const int reference = nnue.eval_screlu(acc, board.is_white_move, occ);
+#else
     const int reference = nnue.evaluate(acc, board.is_white_move, occ);
+#endif
     if (eval != reference) {
         std::cout << "info string NNUE VERIFY FAILED: eval " << eval << " != reference " << reference
                   << " fen " << board.getBoardFEN() << std::endl;
@@ -365,7 +372,7 @@ inline int Searcher::evaluate_position() {
     return eval;
 }
 
-#ifdef TOMAHAWK_VERIFY_NNUE
+#ifdef VERIFY_NNUE
 // Verification builds: the incrementally updated accumulators must equal a full
 // rebuild after every move made in search.
 void Searcher::verify_accumulators(const Move& move) {
@@ -1149,7 +1156,7 @@ void Searcher::perform_move(Board& boardRef, const Move& move, const bool update
         if (prefetch_tt) tt.prefetch(boardRef.zobrist_hash);
         nnue.push_king_move(acc, boardRef, move);
     }
-#ifdef TOMAHAWK_VERIFY_NNUE
+#ifdef VERIFY_NNUE
     verify_accumulators(move);
 #endif
 }

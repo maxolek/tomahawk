@@ -221,7 +221,7 @@ public:
     // ----- nnue helpers -----
     // NNUE score of the current position (side to move's perspective)
     int evaluate_position();
-#ifdef TOMAHAWK_VERIFY_NNUE
+#ifdef VERIFY_NNUE
     // verification builds: compare incremental accumulators with a full rebuild
     void verify_accumulators(const Move& move);
 #endif

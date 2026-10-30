@@ -269,6 +269,17 @@ The dense stages divide accumulated products by `QA`, then `QA * QB`, then `QA *
 
 The active build loads 8,001,160 tensor elements occupying 15,867,712 bytes. Training-only factoriser parameters are not extra runtime tensors. Historical v1/v2 export types and training totals should be confirmed against their original exporters; the [weights profiles](../nnue/weights/readme.md) provide fields for those details.
 
+### Small-net comparison build
+
+The direct-output small network can be built separately from the default big network with `-DSMALL_NET=ON`. This selects both `loadSmall()` and the stack-aware small evaluator; it does not change the default build. For an A/B binary, configure a separate build directory and name the executable, for example:
+
+```sh
+cmake -S . -B build-smallnet -DCMAKE_BUILD_TYPE=Prod -DVERSION=stats_smallnet -DSMALL_NET=ON
+cmake --build build-smallnet
+```
+
+The small head uses the same incremental feature transformer and per-search-thread accumulator stacks. Its SCReLU dot product is SIMD-vectorized (including AVX2 on x86); the big network's sparse AVX2 kernel is specific to its pairwise-multiply layer and is not applicable to this single-output head.
+
 ### Evaluation invariants
 
 At every evaluation boundary, both cached perspectives must equal bias plus the full feature sum for the current board and king mappings. Applying a move and undoing it must restore both vectors, not merely produce the same final score. Captures, promotions, castling, and en passant alter different feature sets; changing output buckets must select the same bucket across all v3 dense layers.

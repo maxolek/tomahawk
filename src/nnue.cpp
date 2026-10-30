@@ -535,9 +535,9 @@ int NNUE::full_eval(const Board& b) {
 
 // Direct output head over both accumulator perspectives. Division order
 // matches the quantized SCReLU training formula (including negative truncation).
-int NNUE::eval_screlu(bool is_white_move, U64 occ) {
-    const auto* us = is_white_move ? acc_stm().vals : acc_ntm().vals;
-    const auto* them = is_white_move ? acc_ntm().vals : acc_stm().vals;
+int NNUE::eval_screlu(const AccumulatorStack& stack, bool is_white_move, U64 occ) const {
+    const auto* us = is_white_move ? stack.white().vals : stack.black().vals;
+    const auto* them = is_white_move ? stack.black().vals : stack.white().vals;
     const int bucket = output_bucket(occ);
     int64_t sum = 0;
 
@@ -553,9 +553,9 @@ int NNUE::eval_screlu(bool is_white_move, U64 occ) {
     return (int)sum;
 }
 
-int NNUE::eval_screlu_simd(bool is_white_move, U64 occ) {
-    const auto* us = is_white_move ? acc_stm().vals : acc_ntm().vals;
-    const auto* them = is_white_move ? acc_ntm().vals : acc_stm().vals;
+int NNUE::eval_screlu_simd(const AccumulatorStack& stack, bool is_white_move, U64 occ) const {
+    const auto* us = is_white_move ? stack.white().vals : stack.black().vals;
+    const auto* them = is_white_move ? stack.black().vals : stack.white().vals;
     const int bucket = output_bucket(occ);
 
     const int64_t sum = dot_screlu_i16(us, l1w_small[bucket], qa_small)

@@ -22,8 +22,11 @@ Engine::Engine() {
     movegen = std::make_unique<MoveGenerator>(search_board);
     tt.clear();
 
+#ifdef SMALL_NET
+    nnue.loadSmall(engine_options.nnue_weight_path);
+#else
     nnue.load(engine_options.nnue_weight_path);
-    //nnue.loadSmall(engine_options.nnue_weight_path);
+#endif
     searcher = std::make_unique<Searcher>(search_board, *movegen, nnue, nnue.acc_state, tt);
 
     book.load(engine_options.opening_book_path);
@@ -147,8 +150,12 @@ void Engine::setOption(const std::string& name, const std::string& value) {
     // -------- books / paths --------
     else if (name == "nnue_weight_file") {
         engine_options.nnue_weight_path = PROJECT_ROOT / fs::path("bin/nnue_wgts") / fs::path(value + ".bin");
-        if(nnue.load(engine_options.nnue_weight_path)) {
-        //if(nnue.loadSmall(engine_options.nnue_weight_path)) {
+#ifdef SMALL_NET
+        const bool loaded = nnue.loadSmall(engine_options.nnue_weight_path);
+#else
+        const bool loaded = nnue.load(engine_options.nnue_weight_path);
+#endif
+        if (loaded) {
             std::cout << "info string NNUE loaded successfully: " << engine_options.nnue_weight_path << std::endl;
         } else {
             std::cout << "info string Failed to load NNUE: " << engine_options.nnue_weight_path << std::endl;
@@ -809,11 +816,15 @@ void Engine::SEETest(int capture_square) {
 }
 
 void Engine::nnueEvalTest() {
-    //nnue.build_accumulators(search_board);
     nnue.build_halfka_accumulators(search_board);
 
+#ifdef SMALL_NET
+    int eval = nnue.eval_screlu(search_board.is_white_move, (search_board.colorBitboards[0] | search_board.colorBitboards[1]));
+    int simd_eval = nnue.eval_screlu_simd(search_board.is_white_move, (search_board.colorBitboards[0] | search_board.colorBitboards[1]));
+#else
     int eval = nnue.evaluate(search_board.is_white_move, (search_board.colorBitboards[0] | search_board.colorBitboards[1]));
     int simd_eval = nnue.eval_simd(search_board.is_white_move, (search_board.colorBitboards[0] | search_board.colorBitboards[1]));
+#endif
 
     std::cout << "=== NNUE Evaluation ===\n";
     std::cout << "NNUE Eval: " << eval << " centipawns\n";
@@ -842,8 +853,13 @@ void Engine::nnueSIMDTest() {
         ++position;
 
         nnue.build_halfka_accumulators(b);
+#ifdef SMALL_NET
+        int scalar = nnue.eval_screlu(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
+        int simd = nnue.eval_screlu_simd(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
+#else
         int scalar = nnue.evaluate(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
         int simd = nnue.eval_simd(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
+#endif
 
         if (scalar != simd) {
             ++errors;
