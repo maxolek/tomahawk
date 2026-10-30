@@ -17,6 +17,9 @@
 #include <sstream>
 #include <string>
 #include <cmath>
+#include <algorithm>
+#include <type_traits>
+#include <utility>
 
 constexpr int STATS_MAX_PLY = 64;
 constexpr int STATS_MAX_ITER_DEPTH = 32;
@@ -130,6 +133,97 @@ struct SearchStats {
     std::array<uint64_t, STATS_MAX_PLY> tree_depth_futility_prune{};
     #endif
 };
+
+template <typename T, size_t N>
+void addSearchStatsArray(std::array<T, N>& total, const std::array<T, N>& stats) {
+    for (size_t i = 0; i < N; ++i) {
+        if constexpr (std::is_arithmetic_v<T>)
+            total[i] += stats[i];
+        else
+            addSearchStatsArray(total[i], stats[i]);
+    }
+}
+
+template <typename T, size_t N>
+void maxSearchStatsArray(std::array<T, N>& total, const std::array<T, N>& stats) {
+    for (size_t i = 0; i < N; ++i) {
+        if constexpr (std::is_arithmetic_v<T>)
+            total[i] = std::max(total[i], stats[i]);
+        else
+            maxSearchStatsArray(total[i], stats[i]);
+    }
+}
+
+inline SearchStats combineSearchStats(const std::vector<SearchStats>& stats) {
+    if (stats.empty()) return SearchStats{};
+
+    SearchStats total = stats.front();
+    for (size_t i = 1; i < stats.size(); ++i) {
+        const SearchStats& thread = stats[i];
+        total.time_ms = std::max(total.time_ms, thread.time_ms);
+        total.max_completed_depth = std::max(total.max_completed_depth, thread.max_completed_depth);
+        total.max_depth = std::max(total.max_depth, thread.max_depth);
+        total.max_qdepth = std::max(total.max_qdepth, thread.max_qdepth);
+        total.nodes += thread.nodes;
+
+        #ifdef DEV
+        total.qnodes += thread.qnodes;
+        total.tt_hits += thread.tt_hits;
+        total.tt_returns += thread.tt_returns;
+        total.tt_stores += thread.tt_stores;
+        total.tt_overwritten += thread.tt_overwritten;
+        total.fail_highs += thread.fail_highs;
+        total.fail_lows += thread.fail_lows;
+        total.aspiration_fail_low_researches += thread.aspiration_fail_low_researches;
+        total.aspiration_fail_high_researches += thread.aspiration_fail_high_researches;
+        total.see_prunes += thread.see_prunes;
+        total.delta_prunes += thread.delta_prunes;
+        total.nmp += thread.nmp;
+        total.nmp_failhigh += thread.nmp_failhigh;
+        total.rfp += thread.rfp;
+        total.futility_prune += thread.futility_prune;
+
+        addSearchStatsArray(total.fail_high_index, thread.fail_high_index);
+        addSearchStatsArray(total.pvs_researches, thread.pvs_researches);
+        addSearchStatsArray(total.it_depth_time_ms, thread.it_depth_time_ms);
+        maxSearchStatsArray(total.it_depth_qdepth, thread.it_depth_qdepth);
+        addSearchStatsArray(total.it_depth_nodes, thread.it_depth_nodes);
+        addSearchStatsArray(total.it_depth_qnodes, thread.it_depth_qnodes);
+        addSearchStatsArray(total.it_depth_ttstores, thread.it_depth_ttstores);
+        addSearchStatsArray(total.it_depth_tthits, thread.it_depth_tthits);
+        addSearchStatsArray(total.it_depth_tt_returns, thread.it_depth_tt_returns);
+        addSearchStatsArray(total.it_depth_ttfill, thread.it_depth_ttfill);
+        addSearchStatsArray(total.it_depth_fail_highs, thread.it_depth_fail_highs);
+        addSearchStatsArray(total.it_depth_fail_lows, thread.it_depth_fail_lows);
+        addSearchStatsArray(total.it_depth_fh_index, thread.it_depth_fh_index);
+        addSearchStatsArray(total.it_depth_pvs_researches, thread.it_depth_pvs_researches);
+        addSearchStatsArray(total.it_depth_aspiration_failhigh_researches, thread.it_depth_aspiration_failhigh_researches);
+        addSearchStatsArray(total.it_depth_aspiration_faillow_researches, thread.it_depth_aspiration_faillow_researches);
+        addSearchStatsArray(total.it_depth_see_prunes, thread.it_depth_see_prunes);
+        addSearchStatsArray(total.it_depth_delta_prunes, thread.it_depth_delta_prunes);
+        addSearchStatsArray(total.it_depth_nmp, thread.it_depth_nmp);
+        addSearchStatsArray(total.it_depth_nmp_failhigh, thread.it_depth_nmp_failhigh);
+        addSearchStatsArray(total.it_depth_rfp, thread.it_depth_rfp);
+        addSearchStatsArray(total.it_depth_futility_prune, thread.it_depth_futility_prune);
+        addSearchStatsArray(total.tree_depth_nodes, thread.tree_depth_nodes);
+        addSearchStatsArray(total.tree_depth_qnodes, thread.tree_depth_qnodes);
+        addSearchStatsArray(total.tree_depth_ttstores, thread.tree_depth_ttstores);
+        addSearchStatsArray(total.tree_depth_tthits, thread.tree_depth_tthits);
+        addSearchStatsArray(total.tree_depth_tt_returns, thread.tree_depth_tt_returns);
+        addSearchStatsArray(total.tree_depth_fail_highs, thread.tree_depth_fail_highs);
+        addSearchStatsArray(total.tree_depth_fail_lows, thread.tree_depth_fail_lows);
+        addSearchStatsArray(total.tree_depth_fh_index, thread.tree_depth_fh_index);
+        addSearchStatsArray(total.tree_depth_pvs_researches, thread.tree_depth_pvs_researches);
+        addSearchStatsArray(total.tree_depth_see_prunes, thread.tree_depth_see_prunes);
+        addSearchStatsArray(total.tree_depth_delta_prunes, thread.tree_depth_delta_prunes);
+        addSearchStatsArray(total.tree_depth_nmp, thread.tree_depth_nmp);
+        addSearchStatsArray(total.tree_depth_nmp_failhigh, thread.tree_depth_nmp_failhigh);
+        addSearchStatsArray(total.tree_depth_rfp, thread.tree_depth_rfp);
+        addSearchStatsArray(total.tree_depth_futility_prune, thread.tree_depth_futility_prune);
+        #endif
+    }
+    return total;
+}
 
 // --- one instance per thread: each search thread records its own counters; the
 // UCI thread runs the main search and reports its copy. Defined in searcher.cpp
@@ -780,6 +874,129 @@ inline void dumpSearchStats()
  
     rule('=');
     cout << "\n";
+}
+
+inline void dumpSearchSummary(const SearchStats& stats)
+{
+    #ifdef DEV
+    const uint64_t total_nodes = stats.nodes + stats.qnodes;
+    #else
+    const uint64_t total_nodes = stats.nodes;
+    #endif
+    const uint64_t nps = stats.time_ms > 0
+        ? static_cast<uint64_t>(1000.0 * static_cast<double>(total_nodes) /
+                                static_cast<double>(stats.time_ms))
+        : 0;
+
+    auto divider = [] { std::cout << std::string(94, '-') << '\n'; };
+    auto section = [&](const char* title) {
+        std::cout << '\n' << title << '\n';
+        divider();
+    };
+    auto valueString = [](const auto& value) {
+        std::ostringstream stream;
+        stream << value;
+        return stream.str();
+    };
+    auto row = [&](const char* label, const std::string& value) {
+        std::cout << "  " << std::left << std::setw(28) << label
+                  << std::right << value << '\n';
+    };
+    auto pairRow = [&](const char* leftLabel, const std::string& leftValue,
+                       const char* rightLabel, const std::string& rightValue) {
+        std::cout << "  " << std::left << std::setw(28) << leftLabel
+                  << std::right << std::setw(12) << leftValue
+                  << "    " << std::left << std::setw(28) << rightLabel
+                  << std::right << std::setw(12) << rightValue << '\n';
+    };
+    #ifdef DEV
+    auto percentString = [](double value) {
+        std::ostringstream stream;
+        stream << std::fixed << std::setprecision(2) << value << '%';
+        return stream.str();
+    };
+    #endif
+
+    std::cout << "\nSEARCH SUMMARY  |  Combined across search threads\n";
+    divider();
+    section("Search");
+    pairRow("Best move", stats.move.uci(), "Evaluation", valueString(stats.eval));
+    pairRow("Time", std::to_string(stats.time_ms) + " ms",
+            "Depth / completed", std::to_string(stats.max_depth) + " / " +
+                                 std::to_string(stats.max_completed_depth));
+    row("Maximum qdepth", valueString(stats.max_qdepth));
+    std::cout << "  " << std::left << std::setw(28) << "Principal variation";
+    for (const Move& move : stats.principal_variation)
+        std::cout << move.uci() << ' ';
+    std::cout << "\n";
+
+    section("Nodes");
+    #ifdef DEV
+    pairRow("Main-search nodes", valueString(stats.nodes),
+            "Quiescence nodes", valueString(stats.qnodes));
+    pairRow("Total nodes", valueString(total_nodes),
+            "Nodes per second", valueString(nps));
+    #else
+    pairRow("Nodes", valueString(total_nodes),
+            "Nodes per second", valueString(nps));
+    #endif
+
+    #ifdef DEV
+    const double tt_return_pct = stats.tt_returns + stats.tt_stores > 0
+        ? 100.0 * static_cast<double>(stats.tt_returns) /
+          static_cast<double>(stats.tt_returns + stats.tt_stores)
+        : 0.0;
+    const double tt_hit_pct = stats.tt_hits + stats.tt_stores > 0
+        ? 100.0 * static_cast<double>(stats.tt_hits) /
+          static_cast<double>(stats.tt_hits + stats.tt_stores)
+        : 0.0;
+    const double nmp_fail_pct = stats.nmp > 0
+        ? 100.0 * static_cast<double>(stats.nmp_failhigh) / static_cast<double>(stats.nmp)
+        : 0.0;
+
+    section("Transposition table");
+    pairRow("Returns", valueString(stats.tt_returns), "Hits", valueString(stats.tt_hits));
+    pairRow("Stores", valueString(stats.tt_stores),
+            "Overwritten", valueString(stats.tt_overwritten));
+    pairRow("Fill ratio", percentString(stats.tt_fill_ratio * 100.0),
+            "Return rate", percentString(tt_return_pct));
+    row("Hit rate", percentString(tt_hit_pct));
+
+    section("Cutoffs and pruning");
+    pairRow("Fail highs", valueString(stats.fail_highs),
+            "Fail lows", valueString(stats.fail_lows));
+    pairRow("Fail high at move 0", valueString(stats.fail_high_index[0]),
+            "Fail high at move 1", valueString(stats.fail_high_index[1]));
+    pairRow("Fail high at move 2", valueString(stats.fail_high_index[2]),
+            "Fail high at move 3", valueString(stats.fail_high_index[3]));
+    pairRow("Fail high at moves 4-7", valueString(stats.fail_high_index[4]),
+            "Fail high at moves 8+", valueString(stats.fail_high_index[5]));
+    pairRow("Aspiration fail-high", valueString(stats.aspiration_fail_high_researches),
+            "Aspiration fail-low", valueString(stats.aspiration_fail_low_researches));
+    pairRow("PVS with LMR", valueString(stats.pvs_researches[0]),
+            "PVS full-window", valueString(stats.pvs_researches[1]));
+    pairRow("PVS at root", valueString(stats.pvs_researches[2]),
+            "SEE prunes", valueString(stats.see_prunes));
+    pairRow("Delta prunes", valueString(stats.delta_prunes),
+            "Reverse futility prunes", valueString(stats.rfp));
+    pairRow("Futility prunes", valueString(stats.futility_prune),
+            "Null-move attempts", valueString(stats.nmp));
+    pairRow("Null-move fail-highs", valueString(stats.nmp_failhigh),
+            "Null-move fail-high rate", percentString(nmp_fail_pct));
+    #endif
+    divider();
+    std::cout << std::defaultfloat;
+}
+
+inline void dumpSearchStats(const SearchStats& stats)
+{
+    struct RestoreThreadStats {
+        SearchStats& target;
+        SearchStats previous;
+        ~RestoreThreadStats() { target = std::move(previous); }
+    } restore{g_stats, g_stats};
+    g_stats = stats;
+    dumpSearchStats();
 }
 
 #ifdef DEV

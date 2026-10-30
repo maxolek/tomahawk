@@ -197,8 +197,22 @@ void UCI::handleCommand(const std::string& line) {
             std::cout << _no_stats_str << std::endl;
         #endif
     }
-    else if (token == "dumpstats") {
-        dumpSearchStats(); // print collected stats to console for last search
+    else if (token == "threadstats" || token == "allstats" || token == "dumpstats") {
+        const std::vector<SearchStats> stats = engine->completedSearchStats();
+        if (stats.empty()) {
+            std::cout << "No completed search stats available.\n";
+        } else {
+            if (token == "allstats" || token == "dumpstats") {
+                dumpSearchSummary(combineSearchStats(stats));
+            }
+            if (token == "threadstats" || token == "dumpstats") {
+                for (size_t i = 0; i < stats.size(); ++i) {
+                    std::cout << "\nSearch thread " << i
+                              << (i == 0 ? " (main)" : " (helper)") << "\n";
+                    dumpSearchStats(stats[i]);
+                }
+            }
+        }
     }
     else if (token == "dumpmoves") {
         #ifdef DEV

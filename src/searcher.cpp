@@ -384,6 +384,7 @@ void Searcher::verify_accumulators(const Move& move) {
 
 int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int ply, int depth, int search_depth, bool& tainted) {
     if (limits.poll_out_of_time()) return alpha;
+    g_stats.max_qdepth = std::max(g_stats.max_qdepth, ply);
     #ifdef DEV
         STATS_QNODE(search_depth, ply); 
     #endif 

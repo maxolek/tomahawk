@@ -43,6 +43,11 @@ void HelperThread::wait() {
     cv.wait(lock, [&] { return !searching; });
 }
 
+SearchStats HelperThread::completed_stats() const {
+    std::lock_guard<std::mutex> lock(mutex);
+    return last_search_stats;
+}
+
 void HelperThread::loop() {
     std::unique_lock<std::mutex> lock(mutex);
     while (true) {
@@ -53,12 +58,15 @@ void HelperThread::loop() {
         run_search();
         lock.lock();
 
+        last_search_stats = g_stats;
         searching = false;
         cv.notify_all();
     }
 }
 
 void HelperThread::run_search() {
+    resetSearchStats();
+    const auto start_time = std::chrono::steady_clock::now();
     // A refused placement would leave the thread where it was, which may be a CPU of
     // another search thread (Linux threads inherit their creator's affinity).
     pin_failed = !affinity::apply_to_current_thread(cpus);
@@ -67,8 +75,18 @@ void HelperThread::run_search() {
     const int count = movegen.generateMoves(board, false);
     std::copy_n(movegen.moves, count, root_moves);
     searcher->nodes = 0;
+    SearchResult result;
     if (count > 0)
-        searcher->iterativeDeepening(root_moves, count, limits); // result intentionally unused
+        result = searcher->iterativeDeepening(root_moves, count, limits);
+    g_stats.time_ms = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start_time).count());
+    g_stats.eval = result.eval;
+    g_stats.move = result.bestMove;
+    g_stats.principal_variation = result.best_line.to_vector();
+    #ifndef DEV
+        g_stats.nodes = searcher->nodes;
+    #endif
 }
 
 // ------------------------------------------------------------
@@ -107,4 +125,12 @@ int SearchThreadPool::placement_failures() const {
     int failures = 0;
     for (const auto& helper : helpers) failures += helper->placement_failed() ? 1 : 0;
     return failures;
+}
+
+std::vector<SearchStats> SearchThreadPool::completed_stats() const {
+    std::vector<SearchStats> stats;
+    stats.reserve(helpers.size());
+    for (const auto& helper : helpers)
+        stats.push_back(helper->completed_stats());
+    return stats;
 }

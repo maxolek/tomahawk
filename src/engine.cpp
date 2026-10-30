@@ -326,6 +326,8 @@ void Engine::computeSearchTime(const SearchSettings& search_settings) {
 
 
 void Engine::startSearch() {
+    resetSearchStats();
+
     // set nnue
     //nnue.build_accumulators(search_board);
     nnue.build_halfka_accumulators(search_board);
@@ -354,6 +356,9 @@ void Engine::startSearch() {
             }
 
             bestMove = bestBookMove;
+            g_stats.move = bestMove;
+            g_stats.eval = bestEval;
+            publishSearchStats({g_stats});
             return; // skip search entirely
         }
     }
@@ -369,7 +374,6 @@ void Engine::startSearch() {
     // stats tracking
     auto start_time = std::chrono::steady_clock::now();
     g_run_context.search_uuid = generate_uuid();
-    resetSearchStats();  
     
     // --- generate first moves once ---
     Move first_moves[MAX_MOVES];
@@ -402,6 +406,9 @@ void Engine::startSearch() {
     if (count > 0 && Move::SameMove(result.bestMove, Move::NullMove()))
         result.bestMove = first_moves[0];
     threads.stop_and_wait();
+    #ifdef DEV
+        g_stats.tt_fill_ratio = tt.fillRatio();
+    #endif
     if (threads.placement_failures() != affinity_failures) {
         affinity_failures = threads.placement_failures();
         if (affinity_failures)
@@ -417,10 +424,13 @@ void Engine::startSearch() {
     g_stats.time_ms = (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - start_time).count();
     g_stats.principal_variation = pv_line;
+    g_stats.eval = result.eval;
+    g_stats.move = result.bestMove;
+    #ifndef DEV
+        g_stats.nodes = searcher->nodes;
+    #endif
     #ifdef DEV
         g_stats.game_ply = ply;
-        g_stats.eval = result.eval;
-        g_stats.move = result.bestMove;
 
         //g_stats.ebf = pow(double(g_stats.nodes) / 1.0, 1.0 / g_stats.maxDepth); // rough estimate
         //g_stats.qratio = double(g_stats.qnodes) / g_stats.nodes;
@@ -431,6 +441,14 @@ void Engine::startSearch() {
         logSearchStats(game_board.getBoardFEN());  // JSON written once at end
         logTimingStats(game_board.getBoardFEN());
     #endif 
+    std::vector<SearchStats> stats{g_stats};
+    std::vector<SearchStats> helper_stats = threads.completed_stats();
+    stats.insert(stats.end(), helper_stats.begin(), helper_stats.end());
+    #ifdef DEV
+        for (SearchStats& thread_stats : stats)
+            thread_stats.tt_fill_ratio = g_stats.tt_fill_ratio;
+    #endif
+    publishSearchStats(std::move(stats));
 }
 
 void Engine::resetSearchStop() {
@@ -441,6 +459,16 @@ void Engine::stopSearch() {
     threads.stop_signal.store(true, std::memory_order_relaxed);
     tracker.result = GameResult::ABORTED;
     tracker.reason = GameEndReason::NONE;
+}
+
+std::vector<SearchStats> Engine::completedSearchStats() const {
+    std::lock_guard<std::mutex> lock(search_stats_mutex);
+    return completed_search_stats;
+}
+
+void Engine::publishSearchStats(std::vector<SearchStats> stats) {
+    std::lock_guard<std::mutex> lock(search_stats_mutex);
+    completed_search_stats = std::move(stats);
 }
 
 // -------------------

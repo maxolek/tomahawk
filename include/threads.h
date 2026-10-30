@@ -35,6 +35,7 @@ public:
                const std::vector<int>& cpus, const std::vector<int>& fallback);
     // Block until the current search (if any) has returned.
     void wait();
+    SearchStats completed_stats() const;
     // Nodes of the last search; valid after wait().
     uint64_t nodes() const { return searcher->nodes; }
     // The OS refused the placement of the last search; valid after wait().
@@ -53,10 +54,11 @@ private:
     std::vector<int> fallback_cpus; // used if the OS refuses `cpus`
     bool pin_failed = false;
 
-    std::mutex mutex;
+    mutable std::mutex mutex;
     std::condition_variable cv;
     bool searching = false;
     bool exiting = false;
+    SearchStats last_search_stats;
     std::thread thread; // started last, after everything it uses exists
 };
 
@@ -79,6 +81,7 @@ public:
     void stop_and_wait();
     // Sum of the helpers' node counts for the last search.
     uint64_t helper_nodes() const;
+    std::vector<SearchStats> completed_stats() const;
     // Helpers whose placement the OS refused in the last search (after stop_and_wait()).
     int placement_failures() const;
 

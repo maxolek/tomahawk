@@ -17,6 +17,8 @@
 #include "book.h"
 
 #include <filesystem>
+#include <mutex>
+#include <vector>
 
 class Searcher;
 struct SearchLimits;
@@ -150,6 +152,7 @@ public:
     void startSearch();
     void resetSearchStop();
     void stopSearch();
+    std::vector<SearchStats> completedSearchStats() const;
     void computeSearchTime(const SearchSettings& settings); // defines the settings for it_dp
     // threads
     void setThreads(int count); // request `count` search threads (1..MAX_SEARCH_THREADS), then fitThreads()
@@ -184,6 +187,12 @@ public:
     // --- Config ---
     void apply_config_file(const fs::path& path);
     void create_config_file(std::string config_name);
+
+private:
+    void publishSearchStats(std::vector<SearchStats> stats);
+
+    mutable std::mutex search_stats_mutex;
+    std::vector<SearchStats> completed_search_stats;
 };
 
 #endif // ENGINE_H
