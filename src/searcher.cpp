@@ -351,6 +351,8 @@ int Searcher::generateAndOrderMoves(Move moves[MAX_MOVES], int ply, const Move t
 inline int Searcher::evaluate_position() {
     const U64 occ = board.colorBitboards[0] | board.colorBitboards[1];
     const int eval = nnue.eval_simd(acc, board.is_white_move, occ);
+    //const int eval = nnue.eval_screlu_simd(board.is_white_move, occ);
+
 #ifdef TOMAHAWK_VERIFY_NNUE
     const int reference = nnue.evaluate(acc, board.is_white_move, occ);
     if (eval != reference) {
@@ -359,6 +361,7 @@ inline int Searcher::evaluate_position() {
         std::_Exit(3);
     }
 #endif
+
     return eval;
 }
 

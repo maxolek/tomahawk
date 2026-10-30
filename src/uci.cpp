@@ -134,6 +134,7 @@ void UCI::handleCommand(const std::string& line) {
         engine->newGame();
     }
     else if (token == "position") { // start all search/tests/everything after set_position
+        waitForSearch();
         handlePosition(iss);
     }
     else if (token == "go") {
@@ -356,7 +357,6 @@ void UCI::handleGo(std::istringstream& iss) {
     search_active.store(true, std::memory_order_relaxed);
     search_thread = std::thread([this, evalRequest] () {
         runSearch(evalRequest);
-        search_active.store(false, std::memory_order_relaxed);
     });
 }
 
@@ -366,6 +366,7 @@ void UCI::runSearch(bool evalRequest) {
 #ifdef DEV
     engine->sendSearchInfo();
 #endif
+    search_active.store(false, std::memory_order_relaxed);
     engine->sendBestMove(engine->bestMove, evalRequest);
 }
 

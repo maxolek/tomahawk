@@ -525,11 +525,6 @@ void Engine::ponderHit() {
 // -------------------
 
 void Engine::sendBestMove(Move best, bool eval, bool ponder) {
-    if (eval) std::cout << "eval " << bestEval << " ";
-    std::cout << "bestmove " << best.uci();
-    if (ponder) std::cout << " ponder";
-    std::cout << std::endl;
-
     game_board.MakeMove(best);
     search_board.MakeMove(best);
     game_over = checkGameEnd();
@@ -538,13 +533,19 @@ void Engine::sendBestMove(Move best, bool eval, bool ponder) {
 
     //resetSearchStats();
     Logging::logUCIout(best.uci());
+
+    if (eval) std::cout << "eval " << bestEval << " ";
+    std::cout << "bestmove " << best.uci();
+    if (ponder) std::cout << " ponder";
+    std::cout << std::endl;
 }
 
+#ifdef DEV
 void Engine::sendSearchInfo() {
     std::cout << "info";
     std::cout << " depth " << g_stats.max_completed_depth;
     std::cout << " qdepth " << g_stats.max_qdepth;
-    std::cout << " nodes " << g_stats.nodes;
+    std::cout << " nodes " << g_stats.nodes + g_stats.qnodes;
     std::cout << " time " << g_stats.time_ms;
     std::cout << " score cp " << result.eval;
     std::cout << " pv";
@@ -553,6 +554,7 @@ void Engine::sendSearchInfo() {
     }
     std::cout << std::endl;
 }
+#endif
 
 
 // GAME LOGGING
