@@ -38,9 +38,11 @@ constexpr int QB = 64;  // L1 weights
 constexpr int QC = 64;  // L2+3 weights
 constexpr int SCALE = 400;
 
+#ifdef SMALL_NET
 // small net
 constexpr int qa_small = 255;
 constexpr int hl_size = 1024; // + concat x2
+#endif
 
 /* --------- SMALL NET -------------------
 

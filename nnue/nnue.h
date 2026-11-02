@@ -39,10 +39,11 @@ public:
     Accumulator& acc_stm() { return acc_state.white(); };
     Accumulator& acc_ntm() { return acc_state.black(); };
 
+#ifdef SMALL_NET
     // ----------- SMALL NET 1024x2 -----------
-
-    alignas(VEC_ALIGN) int16_t l1w_small[NUM_OUTPUT_BUCKETS][2*hl_size];
-    alignas(VEC_ALIGN) int16_t l1b_small[NUM_OUTPUT_BUCKETS];
+    alignas(VEC_ALIGN) int8_t l1w_small[NUM_OUTPUT_BUCKETS][2*hl_size];
+    alignas(VEC_ALIGN) int32_t l1b_small[NUM_OUTPUT_BUCKETS];
+#endif
 
     // ----------- BIG NET 1024-16-32 ---------------
   
@@ -81,7 +82,9 @@ public:
 
     // Load quantised network
     bool load(const fs::path& path);
+#ifdef SMALL_NET
     bool loadSmall(const fs::path& path);
+#endif
 
     // Compute final output from accumulators
     int evaluate(bool is_white_move, U64 occ) { return evaluate(acc_state, is_white_move, occ); }
@@ -89,6 +92,7 @@ public:
     int eval_simd(bool is_white_move, U64 occ) { return eval_simd(acc_state, is_white_move, occ); }
     int eval_simd(const AccumulatorStack& stack, bool is_white_move, U64 occ) const;
     int full_eval(const Board& b);
+#ifdef SMALL_NET
     // Direct SCReLU -> output head for the small network.
     int eval_screlu(const AccumulatorStack& stack, bool is_white_move, U64 occ) const;
     int eval_screlu(bool is_white_move, U64 occ) const {
@@ -98,6 +102,7 @@ public:
     int eval_screlu_simd(bool is_white_move, U64 occ) const {
         return eval_screlu_simd(acc_state, is_white_move, occ);
     }
+#endif
 
     // Accumulator stack (search). Every push is undone by stack.pop().
     //   move_delta + push_delta: incremental update; the delta is computed from the
@@ -149,4 +154,3 @@ public:
 #endif
 
 };
-
