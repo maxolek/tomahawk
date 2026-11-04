@@ -149,7 +149,7 @@ void Engine::setOption(const std::string& name, const std::string& value) {
 
     // -------- books / paths --------
     else if (name == "nnue_weight_file") {
-        engine_options.nnue_weight_path = PROJECT_ROOT / fs::path("bin/nnue_wgts") / fs::path(value + ".bin");
+        engine_options.nnue_weight_path = PROJECT_ROOT / fs::path("nnue/weights") / fs::path(value + ".bin");
 #ifdef SMALL_NET
         const bool loaded = nnue.loadSmall(engine_options.nnue_weight_path);
 #else

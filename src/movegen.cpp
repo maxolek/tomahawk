@@ -323,7 +323,7 @@ void MoveGenerator::generatePawnPushes(bool ours) {
     int start_square;
 
     bool on_starting_rank;
-    int one_step, two_step;
+    int two_step;
 
     while (valid_pawns) {
         start_square = getLSB(valid_pawns);
@@ -337,9 +337,11 @@ void MoveGenerator::generatePawnPushes(bool ours) {
         // Remove double push if blocked
         on_starting_rank = (side == 0) ? (((1ULL << start_square) & Bits::mask_rank_2) != 0) 
                                         : (((1ULL << start_square) & Bits::mask_rank_7) != 0);
-        one_step = start_square + ((side == 0) ? 8 : -8);
-        two_step = start_square + ((side == 0) ? 16 : -16);
-        if (on_starting_rank && !get_bit(potential_moves_bb, one_step)) {
+        if (on_starting_rank && 
+            !get_bit(potential_moves_bb, 
+                     start_square + ((side == 0) ? 8 : -8))
+        ) {
+            two_step = start_square + ((side == 0) ? 16 : -16);
             potential_moves_bb &= ~(1ULL << two_step);
         }
 
@@ -347,7 +349,7 @@ void MoveGenerator::generatePawnPushes(bool ours) {
         potential_moves_bb = restrictCheckMoves(potential_moves_bb);
 
         forEachBit(potential_moves_bb, [&](int target_square) {
-            if (target_square == two_step) {
+            if (on_starting_rank && (target_square == two_step)) {
                 Move m(start_square, target_square, Move::pawnTwoUpFlag);
                 moves[count++] = m; // if (shouldAddMove(m))
             }
