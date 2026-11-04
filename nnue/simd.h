@@ -233,6 +233,22 @@ inline int64_t hsum_epi64(vec256_t v) {
 }
 
 #ifdef SMALL_NET
+// Fused SCReLU and int16 output weights for the historical v2 export.
+inline int64_t dot_screlu_i16(const int16_t* values, const int16_t* weights, int16_t qa) {
+    auto even = zeros256;
+    auto odd = zeros256;
+    const auto cap = vec_set_32<vec256_t>(qa);
+    for (int i = 0; i < hl_size; i += 8) {
+        auto x = vec_convert_16_32<vec128_t, vec256_t>(vec_load<int16_t, vec128_t>(values + i));
+        x = vec_clamp32(x, zeros256, cap);
+        x = vec_mullo32(x, x);
+        const auto w = vec_convert_16_32<vec128_t, vec256_t>(vec_load<int16_t, vec128_t>(weights + i));
+        even = vec_add64(even, vec_mul32(x, w));
+        odd = vec_add64(odd, vec_mul32(vec_shift_right64(x, 32), vec_shift_right64(w, 32)));
+    }
+    return hsum_epi64(vec_add64(even, odd));
+}
+
 // Fused SCReLU and int8 output weights. Widen activations before squaring
 // (255^2 exceeds signed int16), then accumulate products in 64 bits.
 // Inputs use the current accumulator width; arrays must have L1_SIZE entries.

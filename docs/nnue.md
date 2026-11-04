@@ -137,7 +137,7 @@ flowchart TB
 | Concatenated vector | 2048 |
 | Output buckets | 8 (material count) |
 | Output | 1 |
-| Historical export dtypes | Confirm from the v2 exporter; the bundled size differs from the earlier i8-output description |
+| Historical export dtypes | L0 weights/biases i16; output weights/biases i16 |
 | QA / QB | 255 / 64 |
 | Training parameter estimate | ≈8.67M from earlier notes, including factoriser |
 | Bundled weight file size | 15,763,520 bytes (15.76 MB / 15.03 MiB) |
@@ -267,7 +267,7 @@ CReLU clips a value; SCReLU clips and squares it. V3 clamps L0 to `QA = 127`, mu
 
 The dense stages divide accumulated products by `QA`, then `QA * QB`, then `QA * QB * QC` before adding their respective biases. Hidden SCReLU bounds are `QA * QB` and `QA * QB * QC`. After the output bias, the score is multiplied by 400 and divided by `QA * QB * QC * QC`. The diagram's final scaling box summarizes these fixed-point operations.
 
-The active build loads 8,001,160 tensor elements occupying 15,867,712 bytes. Training-only factoriser parameters are not extra runtime tensors. Historical v1/v2 export types and training totals should be confirmed against their original exporters; the [weights profiles](../nnue/weights/readme.md) provide fields for those details.
+The active v3 build loads 8,001,160 tensor elements occupying 15,867,712 bytes. Training-only factoriser parameters are not extra runtime tensors. The historical v2 small net uses int16 L0 weights/biases and int16 head weights/biases; its output head is decoded by the `SMALL_NET` loader, not the v3 loader. See the [weights profiles](../nnue/weights/readme.md) for artifact details.
 
 ### Small-net comparison build
 
@@ -278,7 +278,7 @@ cmake -S . -B build-smallnet -DCMAKE_BUILD_TYPE=Prod -DVERSION=stats_smallnet -D
 cmake --build build-smallnet
 ```
 
-The small head uses the same incremental feature transformer and per-search-thread accumulator stacks. Its SCReLU dot product is SIMD-vectorized (including AVX2 on x86); the big network's sparse AVX2 kernel is specific to its pairwise-multiply layer and is not applicable to this single-output head.
+The small head uses the same incremental feature transformer and per-search-thread accumulator stacks. `loadSmall()` supports the historical int16 head (bucket-major weights and int16 biases) and the current int8-weight export (column-major weights and int32 biases), identifying them by their padded tensor sizes. Both use the same SCReLU scaling. The selected head's SCReLU dot product is SIMD-vectorized (including AVX2 on x86); the big network's sparse AVX2 kernel is specific to its pairwise-multiply layer and is not applicable to this single-output head.
 
 ### Evaluation invariants
 

@@ -42,7 +42,10 @@ public:
 #ifdef SMALL_NET
     // ----------- SMALL NET 1024x2 -----------
     alignas(VEC_ALIGN) int8_t l1w_small[NUM_OUTPUT_BUCKETS][2*hl_size];
+    alignas(VEC_ALIGN) int16_t l1w_small_i16[NUM_OUTPUT_BUCKETS][2*hl_size];
     alignas(VEC_ALIGN) int32_t l1b_small[NUM_OUTPUT_BUCKETS];
+    enum class SmallHeadFormat : uint8_t { I8_HEAD, I16_HEAD };
+    SmallHeadFormat small_head_format = SmallHeadFormat::I8_HEAD;
 #endif
 
     // ----------- BIG NET 1024-16-32 ---------------

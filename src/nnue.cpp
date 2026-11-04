@@ -138,33 +138,43 @@ bool NNUE::loadSmall(const fs::path& path) {
         return false;
     }
 
-    constexpr std::streamoff small_head_weights_size =
+    constexpr std::streamoff small_head_weights_size_i8 =
         NUM_OUTPUT_BUCKETS * 2 * hl_size * static_cast<std::streamoff>(sizeof(int8_t));
-    constexpr std::streamoff small_head_bias_size =
+    constexpr std::streamoff small_head_weights_size_i16 =
+        NUM_OUTPUT_BUCKETS * 2 * hl_size * static_cast<std::streamoff>(sizeof(int16_t));
+    constexpr std::streamoff small_head_bias_size_i8 =
         NUM_OUTPUT_BUCKETS * static_cast<std::streamoff>(sizeof(int32_t));
-    constexpr std::streamoff expected =
+    constexpr std::streamoff small_head_bias_size_i16 =
+        NUM_OUTPUT_BUCKETS * static_cast<std::streamoff>(sizeof(int16_t));
+    constexpr std::streamoff tensor_base_size =
         (std::streamoff)sizeof(l0w) +
-        (std::streamoff)sizeof(l0b) +
-        small_head_weights_size +
-        small_head_bias_size;
+        (std::streamoff)sizeof(l0b);
+    constexpr std::streamoff expected_i8 =
+        tensor_base_size + small_head_weights_size_i8 + small_head_bias_size_i8;
+    constexpr std::streamoff expected_i16 =
+        tensor_base_size + small_head_weights_size_i16 + small_head_bias_size_i16;
 
     f.seekg(0, std::ios::end);
     const std::streamoff file_size = f.tellg();
     f.seekg(0, std::ios::beg);
 
-    if (file_size < expected) {
+    const bool legacy_i16 = file_size >= expected_i16 && file_size < expected_i16 + 64;
+    const bool current_i8 = file_size >= expected_i8 && file_size < expected_i8 + 64;
+    if (!legacy_i16 && !current_i8) {
         std::cerr << "NNUE: file too small: "
                   << file_size << " bytes, expected at least "
-                  << expected << "\n";
+                  << expected_i8 << " (int8 head) or " << expected_i16
+                  << " (legacy int16 head), each padded to 64 bytes\n";
         return false;
     }
 
     // Read the tensor block.
-    std::vector<uint8_t> data(static_cast<size_t>(expected));
+    const std::streamoff tensor_size = legacy_i16 ? expected_i16 : expected_i8;
+    std::vector<uint8_t> data(static_cast<size_t>(tensor_size));
 
     f.read(
         reinterpret_cast<char*>(data.data()),
-        expected
+        tensor_size
     );
 
     if (!f) {
@@ -180,16 +190,24 @@ bool NNUE::loadSmall(const fs::path& path) {
     std::memcpy(l0b, p, sizeof(l0b));
     p += sizeof(l0b);
 
-    // Bullet stores affine weights column-major: each input has all output
-    // buckets contiguously, while inference indexes the head by bucket.
-    const int8_t* weights = reinterpret_cast<const int8_t*>(p);
-    for (int i = 0; i < 2 * hl_size; ++i) {
-        for (int bucket = 0; bucket < NUM_OUTPUT_BUCKETS; ++bucket) {
-            l1w_small[bucket][i] = weights[i * NUM_OUTPUT_BUCKETS + bucket];
-        }
+    if (legacy_i16) {
+        std::memcpy(l1w_small_i16, p, sizeof(l1w_small_i16));
+        small_head_format = SmallHeadFormat::I16_HEAD;
+        p += small_head_weights_size_i16;
+    } else {
+        decode_bullet_affine<int8_t, NUM_OUTPUT_BUCKETS, 2 * hl_size>(
+            p, &l1w_small[0][0]);
+        small_head_format = SmallHeadFormat::I8_HEAD;
+        p += small_head_weights_size_i8;
     }
-    p += small_head_weights_size;
-    std::memcpy(l1b_small, p, sizeof(l1b_small));
+    if (legacy_i16) {
+        int16_t biases[NUM_OUTPUT_BUCKETS];
+        std::memcpy(biases, p, sizeof(biases));
+        for (int bucket = 0; bucket < NUM_OUTPUT_BUCKETS; ++bucket)
+            l1b_small[bucket] = biases[bucket];
+    } else {
+        std::memcpy(l1b_small, p, sizeof(l1b_small));
+    }
 
     return true;
 }
@@ -553,9 +571,16 @@ int NNUE::eval_screlu(const AccumulatorStack& stack, bool is_white_move, U64 occ
     const int bucket = output_bucket(occ);
     int64_t sum = 0;
 
-    for (int i = 0; i < hl_size; ++i) {
-        sum += screlu<int64_t>(us[i], qa_small) * l1w_small[bucket][i];
-        sum += screlu<int64_t>(them[i], qa_small) * l1w_small[bucket][hl_size + i];
+    if (small_head_format == SmallHeadFormat::I16_HEAD) {
+        for (int i = 0; i < hl_size; ++i) {
+            sum += screlu<int64_t>(us[i], qa_small) * l1w_small_i16[bucket][i];
+            sum += screlu<int64_t>(them[i], qa_small) * l1w_small_i16[bucket][hl_size + i];
+        }
+    } else {
+        for (int i = 0; i < hl_size; ++i) {
+            sum += screlu<int64_t>(us[i], qa_small) * l1w_small[bucket][i];
+            sum += screlu<int64_t>(them[i], qa_small) * l1w_small[bucket][hl_size + i];
+        }
     }
 
     sum /= (int64_t)(qa_small);
@@ -570,8 +595,11 @@ int NNUE::eval_screlu_simd(const AccumulatorStack& stack, bool is_white_move, U6
     const auto* them = is_white_move ? stack.black().vals : stack.white().vals;
     const int bucket = output_bucket(occ);
 
-    const int64_t sum = dot_screlu_i8(us, l1w_small[bucket], qa_small)
-                      + dot_screlu_i8(them, l1w_small[bucket] + hl_size, qa_small);
+    const int64_t sum = small_head_format == SmallHeadFormat::I16_HEAD
+        ? dot_screlu_i16(us, l1w_small_i16[bucket], qa_small)
+            + dot_screlu_i16(them, l1w_small_i16[bucket] + hl_size, qa_small)
+        : dot_screlu_i8(us, l1w_small[bucket], qa_small)
+            + dot_screlu_i8(them, l1w_small[bucket] + hl_size, qa_small);
     
     // equivalent to the explicit ordering above
     return static_cast<int>(

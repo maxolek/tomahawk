@@ -84,9 +84,9 @@ struct EngineOptions {
     // small    net : output_buckets_25wdl_1000  
     // original net : 768_128x
 #ifdef SMALL_NET
-    fs::path nnue_weight_path = fs::path(PROJECT_ROOT) / "nnue/weights/output_buckets_25wdl_1000.bin";
+    fs::path nnue_weight_path = fs::path(PROJECT_ROOT) / "nnue/weights/output_buckets_25wdl_1000.bin"; // output_buckets_25wdl_1000
 #else
-    fs::path nnue_weight_path = fs::path(PROJECT_ROOT) / "nnue/weights/cirr_filt_0wdl_LR_001_000435_600batches-1200.bin";
+    fs::path nnue_weight_path = fs::path(PROJECT_ROOT) / "nnue/weights/bignet_farseer_0wdl_lr001_00001_800batches.bin";
 #endif
     fs::path opening_book_path = fs::path(PROJECT_ROOT) / "bin/Titans.bin";
     fs::path syzygy_path       = fs::path(PROJECT_ROOT);
