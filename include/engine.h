@@ -174,8 +174,8 @@ public:
 
     // --- Tests ---
     uint64_t perft(int depth);
-    void perftPrint(int depth); // same as perft but print instead of return
-    void perftDivide(int depth);
+    void perftPrint(int depth); // Print only the total leaf-node count.
+    void perftDivide(int depth); // Print each root move's count and their total.
     void SEETest(int capture_square);
     void nnueEvalTest();
     void nnueSIMDTest();

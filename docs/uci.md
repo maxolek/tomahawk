@@ -43,7 +43,8 @@ This is the complete command inventory implemented by [UCI::handleCommand()](../
 | `save_config <name>` | All | Save configuration through `Engine::create_config_file()` |
 | `nnue_eval` | All | Rebuild and evaluate the search board |
 | `nnue_test` | Windows only | Compare scalar/SIMD results using the external San Jacinto position file described in [validation](validation.md#nnue-agreement) |
-| `perft <depth>` | All | Print the total legal move-tree leaf count; use a positive depth |
+| `perft <depth>` | All | Print only the total legal move-tree leaf count; depth zero returns 1 |
+| `perftdivide <depth>` | All | Print every legal root move's leaf count and the total; depth zero returns 1 |
 | `see <square>` | All | Diagnose exchanges on a target such as `e4` |
 | `dumpzobrist` | All | Print game-board hash, recent hashes, repetition counts, and history sizes |
 | `dump_tt` | All | DEV prints detailed TT counters and fill; other builds print a no-stats message |
@@ -55,7 +56,7 @@ This is the complete command inventory implemented by [UCI::handleCommand()](../
 | `bench` | All; placeholder | Recognized but does nothing |
 | `speedtest` | All; placeholder | Recognized but does nothing |
 
-Run `position` before an independent diagnostic. After `go`, the engine has already applied its selected move. Configuration loading updates stored paths but does not automatically reload NNUE/book resources; see [weights loading](../nnue/weights/readme.md#loading-and-compatibility). Diagnostic helpers without dispatcher entries, such as `perftDivide()`, are not UCI commands.
+Run `position` before an independent diagnostic. After `go`, the engine has already applied its selected move. Configuration loading updates stored paths but does not automatically reload NNUE/book resources; see [weights loading](../nnue/weights/readme.md#loading-and-compatibility).
 
 ## Option names and actual support
 

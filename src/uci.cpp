@@ -178,6 +178,11 @@ void UCI::handleCommand(const std::string& line) {
         if (iss >> perft_depth)
             engine->perftPrint(perft_depth);
     }
+    else if (token == "perftdivide") {
+        int perft_depth;
+        if (iss >> perft_depth)
+            engine->perftDivide(perft_depth);
+    }
     else if (token == "see") {
         std::string target_sq;
         if (iss >> target_sq) {

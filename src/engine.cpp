@@ -749,15 +749,21 @@ uint64_t Engine::perft(int depth) {
     return nodes;
 }
 
-void Engine::perftPrint(int depth) {   
-    if (depth == 0) {std::cout << "1" << std::endl;}
-
-    unsigned long long nodes = 0;
+void Engine::perftPrint(int depth) {
+    if (depth < 0) {
+        std::cerr << "Perft depth must not be negative\n";
+        return;
+    }
+    if (depth == 0) {
+        std::cout << "Nodes searched: 1\n";
+        return;
+    }
 
     Move moves[MAX_MOVES];
     int count = movegen->generateMoves(search_board, false);
     std::copy_n(movegen->moves, count, moves);
 
+    uint64_t nodes = 0;
     Move* end = moves + count;
     for (Move* m = moves; m < end; ++m) {
         search_board.MakeMove(*m);
@@ -765,26 +771,40 @@ void Engine::perftPrint(int depth) {
         search_board.UnmakeMove(*m);
     }
 
-    std::cout << "Nodes searched: " << nodes << std::endl;
-    logTimingStats(game_board.getBoardFEN());
+    std::cout << "Nodes searched: " << nodes << '\n';
 }
 
 void Engine::perftDivide(int depth) {
+    if (depth < 0) {
+        std::cerr << "Perft depth must not be negative\n";
+        return;
+    }
+    if (depth == 0) {
+        std::cout << "Total: 1\n";
+        return;
+    }
+
+    Move moves[MAX_MOVES];
     int count = movegen->generateMoves(search_board, false);
-    Move* moves = movegen->moves;
+    std::copy_n(movegen->moves, count, moves);
 
-    unsigned long long total = 0;
+    uint64_t total = 0;
+    Move* end = moves + count;
 
-    for (int i = 0; i < count; i++) {
-        search_board.MakeMove(moves[i]);
-        uint64_t n = perft(depth - 1);
-        search_board.UnmakeMove(moves[i]);
-
-        std::cout << moves[i].uci() << ": " << n << "\n";
-        total += n;
+    for (Move* m = moves; m < end; ++m) {
+        search_board.MakeMove(*m);
+        const uint64_t nodes = perft(depth - 1);
+        search_board.UnmakeMove(*m);
+        
+        std::cout << m->uci() << ": " << nodes << '\n';
+        total += nodes;
     }
 
     std::cout << "Total: " << total << "\n";
+
+    #if defined(DEV) || defined(TIMING)
+    logTimingStats(game_board.getBoardFEN());
+    #endif
 }
 
 void Engine::SEETest(int capture_square) {

@@ -22,20 +22,21 @@ Use [build modes and statistics](stats.md) to choose production measurements, DE
 
 ## Position and move-generation checks
 
-The UCI diagnostic `perft <depth>` calls `Engine::perftPrint()`, which recursively counts legal move-tree leaves using board make/unmake and full move generation. It does not call NNUE or selective search, and it does not stop branches for search draw rules.
+The UCI diagnostic `perft <depth>` calls `Engine::perftDivide()`, which prints each legal root move and its recursive leaf-node count, followed by the total. `Engine::perftPrint()` prints only the total. Both recursively count legal move-tree leaves using board make/unmake and full move generation; neither calls NNUE or selective search, nor stops branches for search draw rules.
 
 For a basic check, start the engine built using the [README instructions](../README.md#build) and enter:
 
 ```text
 position startpos
 perft 4
+perftdivide 4
 ```
 
-The expected count is **197,281**. Use positive depths: the current `perftPrint(0)` prints a result but does not return before continuing into recursion. Reset with `position` before a separate diagnostic, especially after a search that applies its selected move.
+The expected total is **197,281**. Depth zero counts as one leaf. Reset with `position` before a separate diagnostic, especially after a search that applies its selected move.
 
 Starting-position counts are only a baseline. A useful position set exercises castling rights lost through rook moves/captures, attacked castling transit squares, pins, single and double check, all four promotions, en passant exposing a slider, and en passant while in check. Compare exact legal move sets as well as totals: missing and extra moves can cancel in a count. Compare `hasLegalMoves()` against whether full generation returns a nonzero count.
 
-A per-root-move breakdown helps isolate the first divergent branch. `Engine::perftDivide()` exists, but the UCI `perft` command invokes the total-count routine. The divide helper currently retains the generator's shared move buffer across recursive calls; copy the parent moves before relying on it for diagnostics.
+A per-root-move breakdown helps isolate the first divergent branch. The divide helper copies the root moves before descending, preserving them across recursive calls that reuse the generator's shared move buffer.
 
 ## State restoration and hashing
 
