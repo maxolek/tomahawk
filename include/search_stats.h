@@ -60,7 +60,7 @@ struct SearchStats {
     int max_depth = 0;
     int max_qdepth = 0;
     uint64_t nodes = 0;
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
     uint64_t qnodes = 0;
     uint64_t tt_hits = 0;
     uint64_t tt_returns = 0;                              
@@ -166,7 +166,7 @@ inline SearchStats combineSearchStats(const std::vector<SearchStats>& stats) {
         total.max_qdepth = std::max(total.max_qdepth, thread.max_qdepth);
         total.nodes += thread.nodes;
 
-        #ifdef DEV
+        #if defined(DEV) || defined(STATS)
         total.qnodes += thread.qnodes;
         total.tt_hits += thread.tt_hits;
         total.tt_returns += thread.tt_returns;
@@ -240,7 +240,7 @@ inline void resetSearchStats() {
 
 // --- macros for tracking ---
 
-#ifdef DEV
+#if defined(DEV) || defined(STATS)
 
 #define STATS_NODE(it_d, ply)                                \
     do {                                                             \
@@ -494,7 +494,7 @@ inline void logSearchStats(const std::string& fen = "") {
     static std::ofstream out(Logging::log_file_name("search.jsonl"), std::ios::app);
     if (!out.is_open()) return;
 
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
     size_t n = g_stats.max_depth + 1;
     size_t q_n = g_stats.max_qdepth + 1;
 
@@ -520,7 +520,7 @@ inline void logSearchStats(const std::string& fen = "") {
         << "\"ply\":" << g_stats.game_ply << ","
 
         << "\"nodes\":" << g_stats.nodes << ","
-        #ifdef DEV
+        #if defined(DEV) || defined(STATS)
         << "\"qnodes\":" << g_stats.qnodes << ","
 
         << "\"max_depth\":" << g_stats.max_depth << ","
@@ -613,7 +613,7 @@ inline void dumpSearchStats()
     using std::left;
     using std::right;
  
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
         const uint64_t total_nodes = g_stats.nodes + g_stats.qnodes;
     #else 
         const uint64_t total_nodes = g_stats.nodes; 
@@ -624,7 +624,7 @@ inline void dumpSearchStats()
             ? (1000.0 * static_cast<double>(total_nodes)) / static_cast<double>(g_stats.time_ms)
             : 0.0;
 
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
     const double tt_return_pct =
         (g_stats.tt_returns + g_stats.tt_stores) > 0
             ? 100.0 * static_cast<double>(g_stats.tt_returns) /
@@ -709,13 +709,13 @@ inline void dumpSearchStats()
     // ===================== NODES =====================
     section("NODES");
     row("Nodes", g_stats.nodes);
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
     row("QNodes", g_stats.qnodes);
     #endif
     row("Total", total_nodes);
     row("NPS", static_cast<uint64_t>(nps));
  
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
     // ===================== TT =====================
     section("TRANSPOSITION TABLE");
     row("Returns", g_stats.tt_returns);
@@ -878,7 +878,7 @@ inline void dumpSearchStats()
 
 inline void dumpSearchSummary(const SearchStats& stats)
 {
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
     const uint64_t total_nodes = stats.nodes + stats.qnodes;
     #else
     const uint64_t total_nodes = stats.nodes;
@@ -909,7 +909,7 @@ inline void dumpSearchSummary(const SearchStats& stats)
                   << "    " << std::left << std::setw(28) << rightLabel
                   << std::right << std::setw(12) << rightValue << '\n';
     };
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
     auto percentString = [](double value) {
         std::ostringstream stream;
         stream << std::fixed << std::setprecision(2) << value << '%';
@@ -931,7 +931,7 @@ inline void dumpSearchSummary(const SearchStats& stats)
     std::cout << "\n";
 
     section("Nodes");
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
     pairRow("Main-search nodes", valueString(stats.nodes),
             "Quiescence nodes", valueString(stats.qnodes));
     pairRow("Total nodes", valueString(total_nodes),
@@ -941,7 +941,7 @@ inline void dumpSearchSummary(const SearchStats& stats)
             "Nodes per second", valueString(nps));
     #endif
 
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
     const double tt_return_pct = stats.tt_returns + stats.tt_stores > 0
         ? 100.0 * static_cast<double>(stats.tt_returns) /
           static_cast<double>(stats.tt_returns + stats.tt_stores)
@@ -999,7 +999,7 @@ inline void dumpSearchStats(const SearchStats& stats)
     dumpSearchStats();
 }
 
-#ifdef DEV
+#if defined(DEV) || defined(STATS)
 inline void dumpRootMoves(const SearchResult& result) {
     std::cout << "\n" << std::endl;
     for (int rm = 0; rm < result.root_count; ++rm) {

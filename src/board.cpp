@@ -38,7 +38,7 @@ Board::Board(const Board& other) {
 // Move execution / undo
 // ------------------------------------------------------------
 void Board::MakeMove(Move move) {
-    #ifdef DEV
+    #if defined(DEV) || defined(TIMING)
         ScopedTimer timer(T_MAKEMOVE);
     #endif
 
@@ -138,7 +138,7 @@ void Board::MakeMove(Move move) {
 }
 
 void Board::UnmakeMove(Move move) {
-    #ifdef DEV
+    #if defined(DEV) || defined(TIMING)
         ScopedTimer timer(T_UNMAKE_MOVE);
     #endif
 

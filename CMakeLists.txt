@@ -2,17 +2,32 @@ cmake_minimum_required(VERSION 3.16)
 project(tomahawk LANGUAGES CXX)
 
 option(SMALL_NET "Build with the direct-output small NNUE network" OFF)
+set(NNUE_FILE "" CACHE FILEPATH "NNUE weights to bundle with the engine")
 
 # -------------------
 # Version
 # -------------------
 # Usage:
 #   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVERSION=1.2.3
+#     -DSMALL_NET=ON -DNNUE_FILE=nnue/weights/output_buckets_25wdl_1000.bin
 #   cmake --build build
 #
 if (NOT DEFINED VERSION)
     set(VERSION dev)
 endif()
+
+if (NOT NNUE_FILE)
+    if (SMALL_NET)
+        set(NNUE_FILE "${CMAKE_SOURCE_DIR}/nnue/weights/output_buckets_25wdl_1000.bin")
+    else()
+        set(NNUE_FILE "${CMAKE_SOURCE_DIR}/nnue/weights/bignet_farseer_0wdl_lr001_00001_800batches.bin")
+    endif()
+endif()
+get_filename_component(NNUE_FILE "${NNUE_FILE}" REALPATH BASE_DIR "${CMAKE_SOURCE_DIR}")
+if (NOT EXISTS "${NNUE_FILE}")
+    message(FATAL_ERROR "NNUE_FILE does not exist: ${NNUE_FILE}")
+endif()
+set(NNUE_FILE_EFFECTIVE "${NNUE_FILE}" CACHE INTERNAL "Resolved NNUE file used by this build" FORCE)
 
 add_compile_definitions(ENGINE_ID="${VERSION}")
 add_compile_definitions(PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
@@ -36,6 +51,18 @@ set(NNUE_DIR ${CMAKE_SOURCE_DIR}/nnue)
 set(ENGINES_DIR ${CMAKE_SOURCE_DIR}/engines)
 set(DEV_ENGINES_DIR ${ENGINES_DIR}/dev)
 set(PROD_ENGINES_DIR ${ENGINES_DIR}/prod)
+
+if ((CMAKE_BUILD_TYPE STREQUAL "Release") OR (CMAKE_BUILD_TYPE STREQUAL "Prod") OR (CMAKE_BUILD_TYPE STREQUAL "PROD") OR (CMAKE_BUILD_TYPE STREQUAL "RELEASE"))
+    set(ENGINE_OUTPUT_DIR ${PROD_ENGINES_DIR})
+else()
+    set(ENGINE_OUTPUT_DIR ${DEV_ENGINES_DIR})
+endif()
+if (VERSION AND NOT VERSION STREQUAL "dev" AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(ENGINE_OUTPUT_NAME ${VERSION})
+else()
+    set(ENGINE_OUTPUT_NAME tomahawk)
+endif()
+file(TO_CMAKE_PATH "${ENGINE_OUTPUT_DIR}/${ENGINE_OUTPUT_NAME}.nnue.bin" NNUE_BUNDLE_PATH)
 
 # -------------------
 # Source files
@@ -62,6 +89,11 @@ add_executable(tomahawk ${SOURCES})
 if (SMALL_NET)
     target_compile_definitions(tomahawk PRIVATE SMALL_NET)
 endif()
+target_compile_definitions(tomahawk PRIVATE "NNUE_WEIGHT_FILE=\"${NNUE_BUNDLE_PATH}\"")
+add_custom_command(TARGET tomahawk POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${NNUE_FILE}" "${NNUE_BUNDLE_PATH}"
+    VERBATIM
+)
 
 target_include_directories(tomahawk PRIVATE 
     ${INCLUDE_DIR}
@@ -120,7 +152,7 @@ endif()
 ######################
 
 # DEBUG
-if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+if (CMAKE_BUILD_TYPE STREQUAL "DEBUG")
     target_compile_options(tomahawk PRIVATE
         -O1
         -g
@@ -132,7 +164,7 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_definitions(tomahawk PRIVATE DEBUG)
 
 # profile with full optimization
-elseif (CMAKE_BUILD_TYPE STREQUAL "Profile")
+elseif (CMAKE_BUILD_TYPE STREQUAL "PROFILE")
     target_compile_options(tomahawk PRIVATE
         -O3
         -ffast-math
@@ -145,7 +177,7 @@ elseif (CMAKE_BUILD_TYPE STREQUAL "Profile")
     )
     target_compile_definitions(tomahawk PRIVATE DEBUG)
 
-# analysis (full stats) config
+# analysis (full stats + timing) config
 elseif (CMAKE_BUILD_TYPE STREQUAL "DEV")
     target_compile_options(tomahawk PRIVATE 
         -O3
@@ -156,6 +188,30 @@ elseif (CMAKE_BUILD_TYPE STREQUAL "DEV")
         ${LTO_FLAG}
     )
     target_compile_definitions(tomahawk PRIVATE DEV)
+
+# stats only (non timing) config
+elseif (CMAKE_BUILD_TYPE STREQUAL "STATS")
+    target_compile_options(tomahawk PRIVATE 
+        -O3 
+        -ffast-math 
+        -march=native 
+        #-mbmi2
+        #-mavx2
+        ${LTO_FLAG}
+    )
+    target_compile_definitions(tomahawk PRIVATE STATS)
+
+# timing only (no extra stats) config
+elseif (CMAKE_BUILD_TYPE STREQUAL "TIMING")
+    target_compile_options(tomahawk PRIVATE 
+        -O3 
+        -ffast-math 
+        -march=native 
+        #-mbmi2
+        #-mavx2
+        ${LTO_FLAG}
+    )
+    target_compile_definitions(tomahawk PRIVATE TIMING)
 
 # RELEASE
 else()
@@ -185,21 +241,7 @@ endif()
 # -------------------
 # Output name & location
 # -------------------
-if ((CMAKE_BUILD_TYPE STREQUAL "Release") OR (CMAKE_BUILD_TYPE STREQUAL "Prod") OR (CMAKE_BUILD_TYPE STREQUAL "PROD") OR (CMAKE_BUILD_TYPE STREQUAL "RELEASE"))
-    set_target_properties(tomahawk PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY ${PROD_ENGINES_DIR}
-    )
-else() 
-    set_target_properties(tomahawk PROPERTIES 
-        RUNTIME_OUTPUT_DIRECTORY ${DEV_ENGINES_DIR}
-    )
-endif()
-
-# Handle VERSION-based executable naming
-if (VERSION AND NOT VERSION STREQUAL "dev")
-    if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
-        set_target_properties(tomahawk PROPERTIES
-            OUTPUT_NAME ${VERSION}
-        )
-    endif()
-endif()
+set_target_properties(tomahawk PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${ENGINE_OUTPUT_DIR}"
+    OUTPUT_NAME "${ENGINE_OUTPUT_NAME}"
+)

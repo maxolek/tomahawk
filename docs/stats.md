@@ -12,14 +12,12 @@ Production builds are for playing and representative speed measurements. **DEV**
 |---|---|---|---|---|
 | `Release` (default), `RELEASE`, `Prod`, `PROD` | Neither `DEV` nor `DEBUG` | Production search; aggregate node counting and basic diagnostics remain | `-O3 -ffast-math -march=native -mbmi2 -mavx2 -flto` | `engines/prod/` |
 | `DEV` | `DEV` | Detailed search counters, depth/ply breakdowns, scoped timers, search/timing JSONL, root diagnostics | Same optimization flags as production | `engines/dev/` |
+| `STATS` | `STATS` | Detailed search counters, depth/ply breakdowns, search JSONL, root diagnostics | Same optimization flags as production | `engines/dev/` |
+| `TIMING` | `TIMING` | Scoped timers, timing JSONL, basic production stats | Same optimization flags as production | `engines/dev/` |
 | `Debug` | `DEBUG` | NNUE active-feature bookkeeping and compiled debug helpers; symbols for board/hash debugging | `-O1 -g -mbmi2 -mavx2 -fno-optimize-sibling-calls` | `engines/dev/` |
 | `Profile` | `DEBUG` | Optimized build with symbols and frame pointers; also includes DEBUG bookkeeping | `-O3 -ffast-math -march=native -mbmi2 -mavx2 -flto -g -fno-omit-frame-pointer` | `engines/dev/` |
 
 Use the exact spelling **`Debug`** for `CMAKE_BUILD_TYPE`; `DEBUG` is the preprocessor definition it enables. Uppercase `-DCMAKE_BUILD_TYPE=DEBUG` currently falls through to optimized flags without that definition. There is no `PROD` preprocessor definition. `VERSION=dev` controls naming/identity, not statistics, and the `uci_dev` command does not switch build modes.
-
-The supported project modes are now Release/PROD, DEV, Debug, and Profile. Asan and RelWithDebInfo no longer have dedicated branches. CMake does not reject these removed names or other unknown names: they enter the optimized fallback, without project DEBUG/DEV definitions, and write to `engines/dev/`. CMake may still add its own configuration defaults for recognized standard names. In particular, selecting `Asan` no longer enables sanitizers.
-
-For example, configure with `cmake -S . -B build-dev -G Ninja -DCMAKE_BUILD_TYPE=DEV` and build with `cmake --build build-dev --parallel`. Use `Debug` or `Release` in a separate build directory for the other modes. These directories separate build intermediates, but Debug and DEV still share the default output filename under `engines/dev/`; building one can overwrite the other's executable. See the [build guide](../README.md#build) for toolchain and `VERSION` naming details.
 
 ### Compiler flags and portability
 

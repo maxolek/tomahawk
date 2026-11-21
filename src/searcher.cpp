@@ -32,7 +32,7 @@ bool Searcher::shouldPrune(Move& move, int standPat, int alpha, [[maybe_unused]]
         // see pruning (bad captures ... excl promo and checks)
         int seeGain = SEE(board, move);
         if (seeGain < params.SEE_PRUNE_THRESHOLD) {
-            #ifdef DEV
+            #if defined(DEV) || defined(STATS)
                 STATS_SEE_PRUNE(search_depth, ply);
             #endif
             return true;
@@ -40,7 +40,7 @@ bool Searcher::shouldPrune(Move& move, int standPat, int alpha, [[maybe_unused]]
 
         // delta purning (quiet moves that wont raise alpha anyway)
         if (standPat + params.DELTA_PRUNE_THRESHOLD < alpha) {
-            #ifdef DEV
+            #if defined(DEV) || defined(STATS)
                 STATS_DELTA_PRUNE(search_depth, ply);
             #endif
             return true;
@@ -55,7 +55,7 @@ bool Searcher::shouldPrune(Move& move, int standPat, int alpha, [[maybe_unused]]
 // ============================================================================
 
 int Searcher::SEE(const Board& boardRef, const Move& move) {
-    #ifdef DEV
+    #if defined(DEV) || defined(TIMING)
         ScopedTimer timer(T_SEE);
     #endif
 
@@ -269,6 +269,7 @@ int Searcher::rootMoveScore(const Move& move, const Move& ttMove, const Move& pv
 int Searcher::moveScore(const Move& move, const Board& boardRef,
                         int ply, const Move& ttMove, const std::vector<Move>& previousPV) {
     int seeScore;
+    int oppValue;
 
     // TT + PV
     if (Move::SameMove(ttMove, move)) return move_scores.TT_BASE;
@@ -283,14 +284,11 @@ int Searcher::moveScore(const Move& move, const Board& boardRef,
             case rook:   promoBonus = 100; break;
             case bishop: promoBonus = 100; break;
         }
-        int captured = boardRef.getCapturedPiece(move.TargetSquare());
-        seeScore = 0;
-        if (captured != -1) {
-            seeScore = SEE(boardRef, move);
-            return seeScore >= 0 ? move_scores.GOOD_CAP_BASE + seeScore + promoBonus
-                                 : move_scores.BAD_CAP_BASE  + seeScore + promoBonus;
+        if (boardRef.getCapturedPiece(move.TargetSquare()) != -1) {
+            oppValue = boardRef.getMovedPiece(move.TargetSquare());
+            return move_scores.PROMO_BASE + promoBonus + oppValue;
         }
-        return move_scores.PROMO_BASE + promoBonus + seeScore;
+        return move_scores.PROMO_BASE + promoBonus;
     }
 
     // captures (scored via SEE or MVVLVA)
@@ -316,11 +314,57 @@ int Searcher::moveScore(const Move& move, const Board& boardRef,
     return move_scores.QUIET_BASE + historyHeuristic[sidePiece][move.TargetSquare()] / 16;
 }
 
+/*
+int Searcher::qmoveScore(const Move& move, const Board& boardRef,
+                        const Move& ttMove, const bool inCheck) {
+    // 1. promotions
+    // 2. captures (SEE)
+    // when in check
+    // 3. block (LVA)
+    // 4. king evasions
+    int seeScore;
+
+    // ** TT move first always **
+    if (Move::SameMove(ttMove, move)) return move_scores.TT_BASE;
+
+    // promotions
+    if (move.IsPromotion()) {
+        int promoBonus = 0;
+        switch (move.PromotionPieceType()) {
+            case queen:  promoBonus = 900; break;
+            case knight: promoBonus = 300; break;
+            case rook:   promoBonus = 100; break;
+            case bishop: promoBonus = 100; break;
+        }
+        if (boardRef.getCapturedPiece(move.TargetSquare()) != -1) 
+            return move_scores.PROMO_BASE + move_scores.GOOD_CAP_BASE + promoBonus;
+        return move_scores.PROMO_BASE + promoBonus;
+    }
+
+    // captures (scored via SEE or MVVLVA)
+    int captured = boardRef.getCapturedPiece(move.TargetSquare());
+    if (captured != -1) {
+        // SEE
+        seeScore = SEE(boardRef, move);
+        return seeScore >= 0 ? move_scores.GOOD_CAP_BASE + seeScore : move_scores.BAD_CAP_BASE + seeScore;
+        // MVVLVA
+        //int attacker = board.getMovedPiece(move.StartSquare());
+        //int victim = board.getMovedPiece(move.TargetSquare());
+        //return 100000 + 10 * victim - attacker;
+    }
+
+    // block (LVA)
+    // handles evasions since king value is an extrema
+    int blocker = boardRef.getMovedPiece(move.StartSquare());
+    return move_scores.QUIET_BASE - pieceValues[blocker];
+}
+*/
+
 void Searcher::orderedMoves(Move moves[MAX_MOVES], int count,
                             const Board& boardRef, int ply, 
                             const Move ttMove, const std::vector<Move>& previousPV) {
     
-    #ifdef DEV
+    #if defined(DEV) || defined(TIMING)
         ScopedTimer timer(T_SCORE_ORDER);
     #endif
     // sorting
@@ -395,7 +439,7 @@ void Searcher::verify_accumulators(const Move& move) {
 int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int ply, int depth, int search_depth, bool& tainted) {
     if (limits.poll_out_of_time()) return alpha;
     g_stats.max_qdepth = std::max(g_stats.max_qdepth, ply);
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
         STATS_QNODE(search_depth, ply); 
     #endif 
     nodes++;
@@ -467,7 +511,7 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
         perform_unmove(board, m, build_accums);
 
         if (score >= beta) { 
-            #ifdef DEV
+            #if defined(DEV) || defined(STATS)
                 STATS_FAILHIGH(search_depth, ply, i);
             #endif
             return score; 
@@ -496,7 +540,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                       std::vector<Move>& previousPV, SearchLimits& limits, int ply, 
                       bool can_nmp, bool& tainted) {
     if (limits.poll_out_of_time()) return alpha;
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
         STATS_NODE(depth+ply, ply); // track node per depth
     #endif
     nodes++;
@@ -525,7 +569,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
     Move ttMove = Move::NullMove();
 
     if (ttEntry.key == board.zobrist_hash) {
-        #ifdef DEV
+        #if defined(DEV) || defined(STATS)
             STATS_TT_HIT(depth+ply, ply);
         #endif
         // grab move for move ordering
@@ -533,7 +577,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
 
         // return score if tt-move's search depth is >= than current search depth
         if (ttEntry.depth >= depth) {
-            #ifdef DEV 
+            #if defined(DEV) || defined(STATS)
                 STATS_TT_RETURN(depth+ply, ply);
             #endif 
 
@@ -553,7 +597,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
     // run reduced search to replace TT move
     /*
     if (ttMove.IsNull() && depth >= params.IID_DEPTH_THRESHOLD) {
-        #ifdef DEV
+        #if defined(DEV) || defined(STATS)
             STATS_IID(depth+ply, ply);
         #endif 
         PV iidPV;
@@ -584,7 +628,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         int eval_margin = depth * params.REVERSE_FUTILITY_PRUNE_THRESHOLD;
 
         if (static_eval - eval_margin >= beta) {
-            #ifdef DEV 
+            #if defined(DEV) || defined(STATS)
                 STATS_RFP(depth+ply, ply);
             #endif 
             // padded score prevents overestimating unexpected tactical replies
@@ -615,7 +659,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         // static eval > beta (use cached if available)
         (static_eval > beta)
     ) {
-        #ifdef DEV
+        #if defined(DEV) || defined(TIMING)
             ScopedTimer timer(T_NMP_SEARCH);
             STATS_NMP(depth+ply, ply);
         #endif
@@ -631,7 +675,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         // null window around beta so if if null move fails high 
         // then so should the real move with a full window search
         if (null_score >= beta) {
-            #ifdef DEV
+            #if defined(DEV) || defined(STATS)
                 STATS_NMP_FAILHIGH(depth+ply, ply);
             #endif
             return null_score;
@@ -697,7 +741,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
             && !m.IsPromotion()                 // Never prune promotions
             && !gives_check             // Never prune moves that give check
         ) {
-            #ifdef DEV
+            #if defined(DEV) || defined(STATS)
                 STATS_FUTILITY_PRUNE(depth+ply, ply);
             #endif
             continue; // Skip searching this unpromising quiet move!
@@ -752,7 +796,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
             // then full-window gets triggered below with lmr_R == 0
             // if re-search not triggered then neither will trigger as first null-window failed low
             if (_lmr_R > 0 && score > alpha) {
-                #ifdef DEV
+                #if defined(DEV) || defined(STATS)
                     STATS_PVS_RESEARCH(depth+ply, ply, 0);
                 #endif
                 emptyPV.clear();
@@ -764,7 +808,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
             if (score > alpha && beta-alpha > 1) {
                 // beta-alpha > 1 prevents reduandant research of non-PV nodes
                 // if beta = alpha+1, then score > alpha --> score >= beta --> no need for re-search
-                #ifdef DEV
+                #if defined(DEV) || defined(STATS)
                     STATS_PVS_RESEARCH(depth+ply, ply, 1);
                 #endif
                 emptyPV.clear();
@@ -787,7 +831,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
             // a stopped child returns a bound, not a score: do not learn from it
             if (limits.stopped) return bestEval;
 
-            #ifdef DEV
+            #if defined(DEV) || defined(STATS)
                 STATS_FAILHIGH(depth+ply, ply, i);
             #endif
 
@@ -812,7 +856,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
         BoundType flag = EXACT;
         if (bestEval <= alphaOrig) { 
             flag = UPPERBOUND; 
-            #ifdef DEV
+            #if defined(DEV) || defined(STATS)
                 STATS_FAILLOW(depth+ply, ply); 
             #endif
         }
@@ -857,7 +901,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
         beta  = previousEval + delta;
     }
 
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
         STATS_NODE(depth, ply);
     #endif
     nodes++; 
@@ -877,7 +921,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
             // root move stat tracking
             exact = false;
             nodes_before = nodes;
-            #ifdef DEV
+            #if defined(DEV) || defined(STATS)
                 auto move_start = std::chrono::steady_clock::now();
             #endif
 
@@ -924,7 +968,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                 // then full-window gets triggered below with lmr_R == 0
                 // if re-search not triggered then neither will trigger as first null-window failed low
                 if (_lmr_R > 0 && eval > alpha) {
-                    #ifdef DEV
+                    #if defined(DEV) || defined(STATS)
                         STATS_PVS_RESEARCH(depth+ply, ply, 0); // lmr
                     #endif
                     emptyPV.clear();
@@ -936,7 +980,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                 if (eval > alpha && beta-alpha > 1) {
                     // beta-alpha > 1 prevents reduandant research of non-PV nodes
                     // if beta = alpha+1, then score > alpha --> score >= beta --> no need for re-search
-                    #ifdef DEV
+                    #if defined(DEV) || defined(STATS)
                         STATS_PVS_RESEARCH(depth+ply, ply, 2); // root full
                     #endif
                     emptyPV.clear();
@@ -947,7 +991,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
             
             perform_unmove(board, m, build_accums);
 
-            #ifdef DEV
+            #if defined(DEV) || defined(STATS)
                 auto move_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - move_start).count();
                 iter_result.root_moves[i].time_ms = move_ms;
@@ -973,7 +1017,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
         // aspiration check
         if (!limits.should_stop(depth, (int)nodes) && (depth >= params.ASPIRATION_START_DEPTH)) {
             if (iter_result.eval <= aspAlpha) {
-                #ifdef DEV
+                #if defined(DEV) || defined(STATS)
                     STATS_ASPIRATION_FAILLOW(depth);
                 #endif
                 alpha = aspAlpha - delta;
@@ -981,7 +1025,7 @@ SearchResult Searcher::search(RootMove root_moves[MAX_MOVES], int count, int dep
                 delta = static_cast<int>(static_cast<float>(delta) * params.ASPIRATION_RESEARCH_SCALE);
                 continue;
             } else if (iter_result.eval >= aspBeta) {
-                #ifdef DEV
+                #if defined(DEV) || defined(STATS)
                     STATS_ASPIRATION_FAILHIGH(depth);
                 #endif
                 beta = aspBeta + delta;
@@ -1014,7 +1058,7 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
     
     // --- iterative deepening loop ---
     while (!limits.should_stop(depth, (int)nodes)) {
-        #ifdef DEV
+        #if defined(DEV) || defined(STATS)
             auto depth_start = std::chrono::steady_clock::now();
         #endif
         g_stats.max_depth = depth;
@@ -1049,7 +1093,7 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
             Move ttMove = Move::NullMove();
 
             if (ttEntry.key == board.zobrist_hash) {
-                #ifdef DEV
+                #if defined(DEV) || defined(STATS)
                     STATS_TT_HIT(depth, 0);
                 #endif
                 ttMove = ttEntry.bestMove;
@@ -1075,7 +1119,7 @@ SearchResult Searcher::iterativeDeepening(Move first_moves[MAX_MOVES], int move_
         }
 
         // --- logging --- 
-        #ifdef DEV
+        #if defined(DEV) || defined(STATS)
             auto depth_end = std::chrono::steady_clock::now();
             //g_stats.max_completed_depth = depth;
             g_stats.it_depth_eval[depth] = result.eval; // stm perspective (+.5 white = -.5 black and vice versa)

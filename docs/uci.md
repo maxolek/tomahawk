@@ -9,7 +9,6 @@ This is the complete command inventory implemented by [UCI::handleCommand()](../
 | Command | Availability | Current behavior |
 |---|---|---|
 | `uci` | All | Print engine identity, standard/logging options, then `uciok` |
-| `uci_dev` | All | Print the same handshake plus network/book paths and tuning options; does not enable DEV instrumentation |
 | `isready` | All | Print `readyok` when the listener can process the command |
 | `setoption name <name> value <value>` | All; some options DEV-only | Pass the name/value to `Engine::setOption()`; see the option table below |
 | `ucinewgame` | All | Start a new game/session, clear engine state and TT, reset boards; existing searcher killer/history tables remain |
@@ -69,7 +68,6 @@ The handshake shows defaults and advertised ranges from the current executable. 
 | `Threads` | All / `uci` | Store the value; engine still has one search worker, advertised range 1–1 |
 | `Ponder` | All / `uci` | Store the flag; pondering protocol is incomplete |
 | `UCI_ShowWDL` | All / `uci` | Store the flag; no corresponding WDL output implementation |
-| `nnue_weight_file` | All / `uci_dev` | Load `PROJECT_ROOT/bin/nnue_wgts/<value>.bin`; value is a stem, despite the advertised default being a path |
 | `opening_book` | All / `uci_dev` | Construct `PROJECT_ROOT/bin/<value>.bin` and load for nonempty values |
 | `SyzygyPath` | All / advertised as `syzygy` | Store path only; no tablebase loading. The advertised spelling is not a setter alias |
 | `log_dir` | DEV setter / advertised in all builds | Set logging directory; configure before writers open their streams |

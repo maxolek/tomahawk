@@ -24,7 +24,7 @@ MoveGenerator::MoveGenerator(const Board& _board) {
 
 // fill in move info arrays
 int MoveGenerator::generateMoves(const Board& _board, bool _quiescence) {
-    #ifdef DEV
+    #if defined(DEV) || defined(TIMING)
         ScopedTimer timer(T_MOVEGEN);
     #endif
 

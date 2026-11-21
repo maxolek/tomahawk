@@ -355,7 +355,7 @@ void NNUE::push_king_move(AccumulatorStack& stack, const Board& after, const Mov
 // ============================================================
 
 int NNUE::evaluate(const AccumulatorStack& stack, bool is_white_move, U64 occ) const {
-    #ifdef DEV
+    #if defined(DEV) || defined(TIMING)
         ScopedTimer timer(T_NNUE);
     #endif
 
@@ -448,7 +448,7 @@ int NNUE::evaluate(const AccumulatorStack& stack, bool is_white_move, U64 occ) c
 //      -- 8  int32
 //      -- 4  int64
 int NNUE::eval_simd(const AccumulatorStack& stack, bool is_white_move, U64 occ) const {
-    #ifdef DEV
+    #if defined(DEV) || defined(TIMING)
         ScopedTimer timer(T_NNUE);
     #endif
 

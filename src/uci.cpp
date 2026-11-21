@@ -89,10 +89,9 @@ void UCI::handleCommand(const std::string& line) {
             // Required for lichess
             std::cout << "option name UCI_ShowWDL type check default " << (engine->engine_options.UCI_SHOW_WDL ? "true" : "false") << "\n";
             
-            #ifdef DEV
+            #if defined(DEV) || defined(STATS)
                 std::cout << std::endl; // line break
                 // books
-                std::cout << "option name nnue_weight_file type string default " << engine->engine_options.nnue_weight_path << "\n";
                 std::cout << "option name opening_book type string default " << engine->engine_options.opening_book_path << "\n";
                 std::cout << "option name syzygy type string default " << engine->engine_options.syzygy_path << "\n\n";
                 // search params
@@ -189,7 +188,7 @@ void UCI::handleCommand(const std::string& line) {
         handleZobrist();
     }
     else if (token == "dump_tt") {
-        #ifdef DEV
+        #if defined(DEV) || defined(STATS)
             std::cout << "\n(Last search) Stores:     " << g_stats.tt_stores << std::endl;
             std::cout << "\n(Last search) Hits:       " << g_stats.tt_hits << std::endl;
             std::cout << "\n(Last search) Overwrites: " << g_stats.tt_overwritten << std::endl;
@@ -216,7 +215,7 @@ void UCI::handleCommand(const std::string& line) {
         }
     }
     else if (token == "dumpmoves") {
-        #ifdef DEV
+        #if defined(DEV) || defined(STATS)
             dumpRootMoves(engine->result);
         #else 
             std::cout << _no_stats_str << std::endl;
@@ -363,7 +362,7 @@ void UCI::handleGo(std::istringstream& iss) {
 void UCI::runSearch(bool evalRequest) {
     engine->trackGame();
     engine->startSearch();
-#ifdef DEV
+#if defined(DEV) || defined(STATS)
     engine->sendSearchInfo();
 #endif
     search_active.store(false, std::memory_order_relaxed);

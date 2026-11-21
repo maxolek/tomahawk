@@ -214,3 +214,4 @@ The validity requirements extend beyond matching a table index: verify the key, 
 - Root capture classification occurs after `perform_move()`, while interior classification occurs before it. The root LMR gate does not see the same destination occupancy.
 - Internal iterative deepening is commented out. Qsearch ordering/TT use, repetition-based TT suppression, and mate-score normalization should not be assumed from nearby comments or declarations.
 - `DEV` builds instrument nodes, pruning, cutoffs, re-searches, and timing through [stats.h](../include/stats.h) and [timer.h](../include/timer.h). Other builds still increment aggregate node counts.
+- `STATS` and `TIMING` builds are subsets of `DEV` that only perform their respective function. This is due to the large gap in NPS performance between `PROD` and `DEV` builds due to all the extra work being performed.

@@ -2,7 +2,7 @@
 
 [Project overview](../../README.md) | [NNUE architecture](../../docs/nnue.md) | [Engine integration](../../docs/engine.md)
 
-This directory contains five network artifacts spanning three architecture generations. The current engine is compiled for **v3 (big net)** and defaults to **1024_16_32_pairmul_screlu_T60T70Farseer_filtered.bin**.
+This directory contains five network artifacts spanning three architecture generations. The build selects the network architecture with `SMALL_NET` and the compatible weights with `NNUE_FILE`; release builds bundle the selected weights beside the executable.
 
 Filenames, byte counts, SHA-256 checksums, and the compiled default below are verified from this checkout. Architecture-family assignments for historical files follow the existing architecture notes and filenames; the three v3 files have the exact size expected by the current loader. File size alone does not validate tensor contents. Training provenance, strength, and release decisions are intentionally left as **TODO** fields for the owner to fill in. A default is not a claim that a net is the strongest.
 
@@ -12,15 +12,16 @@ The active dimensions, quantization, and layout are fixed in [network.h](../netw
 
 The v3 loader reads 15,867,712 bytes of tensors in order: `l0w`, `l0b`, `l1w`, `l1b`, `l2w`, `l2b`, `l3w`, `l3b`. It rejects undersized files and does not inspect a version header or infer an architecture from the filename. The `SMALL_NET` loader separately recognizes its two supported head layouts from the padded tensor size; the historical v2 net is not compatible with a v3 build.
 
-There are currently three distinct path behaviors:
+The selected network is fixed per build. CMake chooses the default from
+`SMALL_NET` or accepts an explicit `-DNNUE_FILE=<path>`, copies that file next
+to the executable as `<engine>.nnue.bin`, and compiles the bundled path into
+the engine. The registry hashes this bundled file, so builds using different
+weights are recorded as distinct engines.
 
-| Mechanism | Current behavior |
-|---|---|
-| Compiled default | `EngineOptions::nnue_weight_path` in [engine.h](../../include/engine.h) points into `PROJECT_ROOT/nnue/weights/`; the constructor loads it |
-| `setoption name nnue_weight_file value <stem>` | Constructs `PROJECT_ROOT/bin/nnue_wgts/<stem>.bin` and immediately calls `nnue.load()`; it does not directly address this directory |
-| INI `nnue_weight_path` | `apply_config_file()` updates the stored path relative to `PROJECT_ROOT`, but does not reload NNUE weights |
-
-To change the checkout's startup default, select a compatible v3 file in `EngineOptions` and rebuild. For the existing runtime option, place a compatible file under `bin/nnue_wgts/` and supply its stem without `.bin`. Record the selected file's checksum with any benchmark. The comparison below documents the files in this directory; it does not change the loader or configuration behavior.
+For release builds, use `release.py --nnue-file <path>` to select a compatible
+network and rebuild. The `SMALL_NET` setting must match the network format.
+Record the selected file's checksum with any benchmark. The comparison below
+documents the files in this directory; it does not rank or select a default.
 
 ## Profile completion guide
 
@@ -35,7 +36,7 @@ Sizes use decimal MB (1,000,000 bytes). Checksums identify the artifacts current
 | Field | v1: Base net | v2: Small net | v3: leela99 | v3: leela99_filt | v3: T60T70Farseer_filtered |
 |---|---|---|---|---|---|
 | File | [768_128x2.bin](768_128x2.bin) | [output_buckets_25wdl_1000.bin](output_buckets_25wdl_1000.bin) | [1024_16_32_pairmul_screlu_leela99.bin](1024_16_32_pairmul_screlu_leela99.bin) | [1024_16_32_pairmul_screlu_leela99_filt.bin](1024_16_32_pairmul_screlu_leela99_filt.bin) | [1024_16_32_pairmul_screlu_T60T70Farseer_filtered.bin](1024_16_32_pairmul_screlu_T60T70Farseer_filtered.bin) |
-| Status | Historical; incompatible with the current v3 loader. | Historical; supported by the `SMALL_NET` loader using its int16-head format. | Bundled v3-layout candidate; no strength ranking recorded here. | Bundled v3-layout candidate; no strength ranking recorded here. | Current default in EngineOptions::nnue_weight_path. |
+| Status | Historical; incompatible with the current v3 loader. | Historical; supported by the `SMALL_NET` loader using its int16-head format. | Bundled v3-layout candidate; no strength ranking recorded here. | Bundled v3-layout candidate; no strength ranking recorded here. | Default v3 candidate; no strength ranking recorded here. |
 | Architecture | Historical base architecture: 768 inputs, 128 values per perspective, 256-to-1 output. See [v1 layer diagram](../../docs/nnue.md#v1-base-net). | Historical bucketed architecture: 10 input buckets, 1024 values per perspective, SCReLU, 8 output heads; L0 and head weights/biases i16. See [v2 layer diagram](../../docs/nnue.md#v2-small-net). | 10 input buckets, dual 1024-wide accumulators, pairwise multiplication, 16/32 hidden layers, 8 output heads. See [v3 layer diagram](../../docs/nnue.md#v3-big-net). | 10 input buckets, dual 1024-wide accumulators, pairwise multiplication, 16/32 hidden layers, 8 output heads. See [v3 layer diagram](../../docs/nnue.md#v3-big-net). | 10 input buckets, dual 1024-wide accumulators, pairwise multiplication, 16/32 hidden layers, 8 output heads. See [v3 layer diagram](../../docs/nnue.md#v3-big-net). |
 | Size (bytes) | 197,440 | 15,763,520 | 15,867,712 | 15,867,712 | 15,867,712 |
 | Size (MB) | 0.197 | 15.764 | 15.868 | 15.868 | 15.868 |

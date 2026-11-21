@@ -148,19 +148,6 @@ void Engine::setOption(const std::string& name, const std::string& value) {
     }
 
     // -------- books / paths --------
-    else if (name == "nnue_weight_file") {
-        engine_options.nnue_weight_path = PROJECT_ROOT / fs::path("nnue/weights") / fs::path(value + ".bin");
-#ifdef SMALL_NET
-        const bool loaded = nnue.loadSmall(engine_options.nnue_weight_path);
-#else
-        const bool loaded = nnue.load(engine_options.nnue_weight_path);
-#endif
-        if (loaded) {
-            std::cout << "info string NNUE loaded successfully: " << engine_options.nnue_weight_path << std::endl;
-        } else {
-            std::cout << "info string Failed to load NNUE: " << engine_options.nnue_weight_path << std::endl;
-        }
-    }
     else if (name == "opening_book") {
         engine_options.opening_book_path = PROJECT_ROOT / fs::path("bin") / fs::path(value + ".bin"); // auto-construct full path
 
@@ -178,7 +165,7 @@ void Engine::setOption(const std::string& name, const std::string& value) {
     }
 
     // -------- logging --------
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS) || defined(TIMING)
     else if (name == "log_dir") {
         Logging::setLogDir(value);
         std::cout << "info string log_dir loaded successfully: " << Logging::log_dir << std::endl;
@@ -413,7 +400,7 @@ void Engine::startSearch() {
     if (count > 0 && Move::SameMove(result.bestMove, Move::NullMove()))
         result.bestMove = first_moves[0];
     threads.stop_and_wait();
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
         g_stats.tt_fill_ratio = tt.fillRatio();
     #endif
     if (threads.placement_failures() != affinity_failures) {
@@ -433,10 +420,10 @@ void Engine::startSearch() {
     g_stats.principal_variation = pv_line;
     g_stats.eval = result.eval;
     g_stats.move = result.bestMove;
-    #ifndef DEV
+    #if defined(DEV) || defined(STATS)
         g_stats.nodes = searcher->nodes;
     #endif
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
         g_stats.game_ply = ply;
 
         //g_stats.ebf = pow(double(g_stats.nodes) / 1.0, 1.0 / g_stats.maxDepth); // rough estimate
@@ -451,7 +438,7 @@ void Engine::startSearch() {
     std::vector<SearchStats> stats{g_stats};
     std::vector<SearchStats> helper_stats = threads.completed_stats();
     stats.insert(stats.end(), helper_stats.begin(), helper_stats.end());
-    #ifdef DEV
+    #if defined(DEV) || defined(STATS)
         for (SearchStats& thread_stats : stats)
             thread_stats.tt_fill_ratio = g_stats.tt_fill_ratio;
     #endif
@@ -547,7 +534,7 @@ void Engine::sendBestMove(Move best, bool eval, bool ponder) {
     std::cout << std::endl;
 }
 
-#ifdef DEV
+#if defined(DEV) || defined(STATS)
 void Engine::sendSearchInfo() {
     std::cout << "info";
     std::cout << " depth " << g_stats.max_completed_depth;
@@ -682,7 +669,6 @@ void Engine::apply_config_file(const fs::path& path) {
     if (auto* v = get("max_threads"))     engine_options.MAX_THREADS     = std::stoi(*v);
     if (auto* v = get("cpu_affinity"))        setAffinity(*v);
     if (auto* v = get("pondering"))        engine_options.PONDERING         = b(*v);
-    if (auto* v = get("nnue_weight_path"))  engine_options.nnue_weight_path  = Logging::project_root / *v;
     if (auto* v = get("opening_book_path")) engine_options.opening_book_path = Logging::project_root / *v;
     if (auto* v = get("syzygy_path"))       engine_options.syzygy_path       = Logging::project_root / *v;  
 }
@@ -730,7 +716,6 @@ void Engine::create_config_file(std::string config_name) {
       << "max_threads       = " << engine_options.MAX_THREADS        << "\n"
       << "hash_size_mb      = " << engine_options.HASH_SIZE_MB       << "\n"
       << "pondering         = " << b(engine_options.PONDERING)       << "\n\n"
-      << "nnue_weight_path  = " << fs::relative(engine_options.nnue_weight_path,  Logging::project_root).generic_string() << "\n"
       << "opening_book_path = " << fs::relative(engine_options.opening_book_path, Logging::project_root).generic_string() << "\n"
       << "syzygy_path       = " << fs::relative(engine_options.syzygy_path,       Logging::project_root).generic_string() << "\n";
 

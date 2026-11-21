@@ -84,7 +84,7 @@ void HelperThread::run_search() {
     g_stats.eval = result.eval;
     g_stats.move = result.bestMove;
     g_stats.principal_variation = result.best_line.to_vector();
-    #ifndef DEV
+    #if defined(DEV) || defined(STATS)
         g_stats.nodes = searcher->nodes;
     #endif
 }

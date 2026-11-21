@@ -66,7 +66,7 @@ public:
 
     // Probe TT for a given key; the result's key equals `key` on a hit
     inline TTEntry probe(U64 key) const {
-        #ifdef DEV
+        #if defined(DEV) || defined(TIMING)
             ScopedTimer timer(T_TT_PROBE);
         #endif
         const Slot& slot = table[key & (entriesCount - 1)];
@@ -94,7 +94,7 @@ public:
     // Store an entry
     inline void store(U64 key, int depth, [[maybe_unused]] int ply, int score,
                       BoundType flag, Move bestMove) {
-        #ifdef DEV
+        #if defined(DEV) || defined(TIMING)
             ScopedTimer timer(T_TT_STORE);
         #endif
         Slot& slot = table[key & (entriesCount - 1)];
@@ -114,7 +114,7 @@ public:
             slot.age.store(static_cast<uint16_t>(slot.age.load(std::memory_order_relaxed) + 1),
                            std::memory_order_relaxed);
 
-            #ifdef DEV
+            #if defined(DEV) || defined(STATS)
                 STATS_TT_STORE(depth+ply, ply);
             #endif
         }

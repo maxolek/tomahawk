@@ -80,14 +80,7 @@ struct EngineOptions {
     bool UCI_SHOW_WDL     = false;
     std::string CPU_AFFINITY = "auto"; // CPUs of the search threads: auto, none, or a list (affinity.h)
 
-    // big      net : 1024_16_32_pairmul_screlu  
-    // small    net : output_buckets_25wdl_1000  
-    // original net : 768_128x
-#ifdef SMALL_NET
-    fs::path nnue_weight_path = fs::path(PROJECT_ROOT) / "nnue/weights/output_buckets_25wdl_1000.bin"; // output_buckets_25wdl_1000
-#else
-    fs::path nnue_weight_path = fs::path(PROJECT_ROOT) / "nnue/weights/bignet_farseer_0wdl_lr001_00001_800batches.bin";
-#endif
+    fs::path nnue_weight_path = NNUE_WEIGHT_FILE;
     fs::path opening_book_path = fs::path(PROJECT_ROOT) / "bin/Titans.bin";
     fs::path syzygy_path       = fs::path(PROJECT_ROOT);
 };
