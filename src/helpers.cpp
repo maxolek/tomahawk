@@ -270,26 +270,3 @@ int algebraic_to_square(std::string square) {
     int index = (rank_index * 8) + file_index;
     return index;
 }
-
-// config functions
-std::unordered_map<std::string, std::string> parse_kv(const fs::path& path) {
-    std::unordered_map<std::string, std::string> kv;
-    std::ifstream f(path);
-    if (!f) return kv;  // missing file = use defaults, not an error
-    std::string line;
-    while (std::getline(f, line)) {
-        // strip comments and whitespace
-        if (auto pos = line.find('#'); pos != std::string::npos) line.erase(pos);
-        auto eq = line.find('=');
-        if (eq == std::string::npos) continue;
-        std::string k = line.substr(0, eq), v = line.substr(eq + 1);
-        // trim
-        auto trim = [](std::string& s) {
-            s.erase(0, s.find_first_not_of(" \t\r\n"));
-            s.erase(s.find_last_not_of(" \t\r\n") + 1);
-        };
-        trim(k); trim(v);
-        if (!k.empty()) kv[k] = v;
-    }
-    return kv;
-}

@@ -14,12 +14,14 @@ This is the complete command inventory implemented by [UCI::handleCommand()](../
 | `ucinewgame` | All | Start a new game/session, clear engine state and TT, reset boards; existing searcher killer/history tables remain |
 | `position startpos [moves <move> ...]` | All | Rebuild the starting position and replay coordinate moves |
 | `position fen <six FEN fields> [moves <move> ...]` | All | Rebuild the supplied position and replay moves |
-| `go [arguments]` | All | Search, emit `bestmove`, then apply the chosen move to both boards |
-| `stop` | All; incomplete | Set the engine stop flag and print its current best move when processed; cannot interrupt synchronous search |
+| `go [arguments]` | All | Search, emit final `info` including depth, total nodes, time, score and PV, then emit `bestmove` and apply the chosen move to both boards |
+| `stop` | All | Request search termination, wait for the worker, then emit its best move |
 | `ponderhit` | All; placeholder | Recognized with an empty handler |
-| `quit` | All; synchronous | Request stop; the listener exits for the exact input line `quit` once it can read it |
+| `quit` | All; synchronous | Stop and wait for an active search, then exit after processing the exact input line `quit` |
 
-`go` runs on the input listener itself. Commands queued during search, including `isready`, `stop`, and `quit`, wait until it returns. Search limits are also passed by value. See [implementation boundaries](engine.md#current-implementation-boundaries).
+`go` dispatches the search to a persistent worker, leaving the input listener free to process commands. `stop`, `position`, and `setoption` stop and wait for an active search before continuing; `isready` can be handled while a search is running. Search limits are passed by value. See [implementation boundaries](engine.md#current-implementation-boundaries).
+
+The worker's CPU placement is applied when it starts; helper threads are placed when created. Changing `Threads` or `Affinity` refreshes the plan and thread placement, but a normal `go` does not recalculate or reapply affinity.
 
 | `go` argument | Meaning and support |
 |---|---|

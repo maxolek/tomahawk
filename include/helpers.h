@@ -137,9 +137,6 @@ uint64_t read_u64_be(std::ifstream &file);
 uint32_t read_u32_be(std::ifstream &file);
 uint16_t read_u16_be(std::ifstream &file);
 
-// config file functions
-std::unordered_map<std::string, std::string> parse_kv(const fs::path& path);
-
 // function to get the cardinal direction from start_square -> target_square
 //      clockwise from N indexing
 std::pair<int,int> direction_map(int start_square, int target_square);

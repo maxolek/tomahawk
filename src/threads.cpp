@@ -7,9 +7,12 @@
 // HelperThread
 // ------------------------------------------------------------
 
-HelperThread::HelperThread(NNUE& nnue, TranspositionTable& tt)
+HelperThread::HelperThread(NNUE& nnue, TranspositionTable& tt,
+                           const std::vector<int>& assigned_cpus, const std::vector<int>& fallback_assignment)
     : movegen(board),
-      searcher(std::make_unique<Searcher>(board, movegen, nnue, acc, tt)) {
+      searcher(std::make_unique<Searcher>(board, movegen, nnue, acc, tt)),
+      cpus(assigned_cpus),
+      fallback_cpus(fallback_assignment) {
     searcher->is_main = false;
     thread = std::thread(&HelperThread::loop, this);
 }
@@ -24,15 +27,12 @@ HelperThread::~HelperThread() {
     thread.join();
 }
 
-void HelperThread::start(const Board& root, const SearchLimits& search_limits, const SearchParams& params,
-                         const std::vector<int>& placement, const std::vector<int>& fallback) {
+void HelperThread::start(const Board& root, const SearchLimits& search_limits, const SearchParams& params) {
     {
         std::lock_guard<std::mutex> lock(mutex);
         board = root;
         limits = search_limits;
         searcher->params = params;
-        cpus = placement;
-        fallback_cpus = fallback;
         searching = true;
     }
     cv.notify_all();
@@ -43,13 +43,23 @@ void HelperThread::wait() {
     cv.wait(lock, [&] { return !searching; });
 }
 
+void HelperThread::wait_until_placed() {
+    std::unique_lock<std::mutex> lock(mutex);
+    cv.wait(lock, [&] { return placement_ready; });
+}
+
 SearchStats HelperThread::completed_stats() const {
     std::lock_guard<std::mutex> lock(mutex);
     return last_search_stats;
 }
 
 void HelperThread::loop() {
+    pin_failed = !affinity::apply_to_current_thread(cpus);
+    if (pin_failed) affinity::apply_to_current_thread(fallback_cpus);
+
     std::unique_lock<std::mutex> lock(mutex);
+    placement_ready = true;
+    cv.notify_all();
     while (true) {
         cv.wait(lock, [&] { return searching || exiting; });
         if (exiting) return;
@@ -67,10 +77,6 @@ void HelperThread::loop() {
 void HelperThread::run_search() {
     resetSearchStats();
     const auto start_time = std::chrono::steady_clock::now();
-    // A refused placement would leave the thread where it was, which may be a CPU of
-    // another search thread (Linux threads inherit their creator's affinity).
-    pin_failed = !affinity::apply_to_current_thread(cpus);
-    if (pin_failed) affinity::apply_to_current_thread(fallback_cpus);
     Move root_moves[MAX_MOVES];
     const int count = movegen.generateMoves(board, false);
     std::copy_n(movegen.moves, count, root_moves);
@@ -84,7 +90,7 @@ void HelperThread::run_search() {
     g_stats.eval = result.eval;
     g_stats.move = result.bestMove;
     g_stats.principal_variation = result.best_line.to_vector();
-    #if defined(DEV) || defined(STATS)
+    #if !defined(DEV) && !defined(STATS)
         g_stats.nodes = searcher->nodes;
     #endif
 }
@@ -93,21 +99,25 @@ void HelperThread::run_search() {
 // SearchThreadPool
 // ------------------------------------------------------------
 
-void SearchThreadPool::set_helpers(int count, NNUE& nnue, TranspositionTable& tt) {
+void SearchThreadPool::set_helpers(int count, NNUE& nnue, TranspositionTable& tt,
+                                   const affinity::Plan& placement) {
     count = std::max(0, count);
-    if (static_cast<int>(helpers.size()) > count) stop_and_wait(); // no helper may still be searching
-    while (static_cast<int>(helpers.size()) > count) helpers.pop_back();
-    while (static_cast<int>(helpers.size()) < count) helpers.push_back(std::make_unique<HelperThread>(nnue, tt));
+    stop_and_wait();
+    helpers.clear();
+    for (int i = 0; i < count; ++i) {
+        const size_t slot = static_cast<size_t>(i + 1);
+        const std::vector<int> cpus = slot < placement.threads.size()
+            ? placement.threads[slot] : std::vector<int>{};
+        const std::vector<int> fallback = slot < placement.unpinned.size()
+            ? placement.unpinned[slot] : std::vector<int>{};
+        helpers.push_back(std::make_unique<HelperThread>(nnue, tt, cpus, fallback));
+    }
+    for (const auto& helper : helpers) helper->wait_until_placed();
 }
 
-void SearchThreadPool::start(const Board& root, const SearchLimits& limits, const SearchParams& params,
-                             const affinity::Plan& placement) {
-    static const std::vector<int> unpinned;
-    auto slot = [&](const std::vector<std::vector<int>>& sets, size_t i) -> const std::vector<int>& {
-        return i < sets.size() ? sets[i] : unpinned;
-    };
+void SearchThreadPool::start(const Board& root, const SearchLimits& limits, const SearchParams& params) {
     for (size_t i = 0; i < helpers.size(); ++i)
-        helpers[i]->start(root, limits, params, slot(placement.threads, i + 1), slot(placement.unpinned, i + 1));
+        helpers[i]->start(root, limits, params);
 }
 
 void SearchThreadPool::stop_and_wait() {

@@ -32,6 +32,7 @@ Engine::Engine() {
     book.load(engine_options.opening_book_path);
 
     g_stats = SearchStats();
+    fitThreads();
 }
 
 
@@ -272,6 +273,7 @@ void Engine::setPosition(const std::string& fen,
 // --------------------
 
 void Engine::computeSearchTime(const SearchSettings& search_settings) {
+    // log
     if (g_run_context.is_new_game) {
         g_gamelog.wtime = search_settings.wtime;
         g_gamelog.btime = search_settings.btime;
@@ -284,14 +286,12 @@ void Engine::computeSearchTime(const SearchSettings& search_settings) {
         g_run_context.is_new_game = false;
     }
 
-    int movesToGo = search_settings.movestogo > 0 ? search_settings.movestogo : 20;
-
+    // hard coded time/depth/nodes limits
     if (search_settings.infinite) {
         limits = SearchLimits(0, search_settings.depth, search_settings.nodes);
         return;
     }
 
-    // hard coded time/depth/nodes limits
     if (search_settings.movetime > 0 || search_settings.depth > 0 || search_settings.nodes > 0) {
         limits = SearchLimits(
             search_settings.movetime - engine_options.MOVE_OVERHEAD_MS,
@@ -303,6 +303,7 @@ void Engine::computeSearchTime(const SearchSettings& search_settings) {
 
     // game clock
     int side_index = game_board.is_white_move ? 0 : 1;
+    int movesToGo = search_settings.movestogo > 0 ? search_settings.movestogo : 20;
     int myTime = (side_index == 0 ? search_settings.wtime : search_settings.btime);
     int myInc  = (side_index == 0 ? search_settings.winc  : search_settings.binc);
 
@@ -313,8 +314,7 @@ void Engine::computeSearchTime(const SearchSettings& search_settings) {
         * aggressiveness
     );
 
-    timeBudget = std::max(10, timeBudget - engine_options.MOVE_OVERHEAD_MS);
-
+    timeBudget = std::max(engine_options.MOVE_OVERHEAD_MS, timeBudget);
     limits = SearchLimits(timeBudget);
 }
 
@@ -378,24 +378,9 @@ void Engine::startSearch() {
     // Helpers search the same root and share the TT; the main thread's result is used.
     computeSearchTime(settings);
 
-    // Thread placement is recomputed every search: it follows Threads, Affinity and
-    // the CPUs the process was given, which the program that started it may change.
-    // The thread count follows them too: never more search threads than CPUs.
-    if (fitThreads()) reportThreads();
-    const affinity::Plan placement = affinity::make_plan(affinity_spec, searchThreads());
-    std::string report = placement.summary;
-    if (!affinity::apply_to_current_thread(placement.threads[0])) {
-        affinity::apply_to_current_thread(placement.unpinned[0]);
-        report += " (the operating system refused to move the main search thread)";
-    }
-    report += "; main search thread currently on " + affinity::describe_current_core();
-    if (report != affinity_report) {
-        affinity_report = report;
-        std::cout << "info string " << report << std::endl;
-    }
-
+    // --- search ---
     limits.stop_signal = &threads.stop_signal;
-    threads.start(search_board, limits, searcher->params, placement);
+    threads.start(search_board, limits, searcher->params);
     result = searcher->iterativeDeepening(first_moves, count, limits);
     if (count > 0 && Move::SameMove(result.bestMove, Move::NullMove()))
         result.bestMove = first_moves[0];
@@ -403,12 +388,6 @@ void Engine::startSearch() {
     #if defined(DEV) || defined(STATS)
         g_stats.tt_fill_ratio = tt.fillRatio();
     #endif
-    if (threads.placement_failures() != affinity_failures) {
-        affinity_failures = threads.placement_failures();
-        if (affinity_failures)
-            std::cout << "info string affinity: the operating system refused to pin " << affinity_failures
-                      << " helper thread(s); they ran unpinned" << std::endl;
-    }
     bestMove = result.bestMove;
     bestEval = result.eval; 
     pv_line = result.best_line.to_vector();
@@ -420,7 +399,7 @@ void Engine::startSearch() {
     g_stats.principal_variation = pv_line;
     g_stats.eval = result.eval;
     g_stats.move = result.bestMove;
-    #if defined(DEV) || defined(STATS)
+    #if !defined(DEV) && !defined(STATS)
         g_stats.nodes = searcher->nodes;
     #endif
     #if defined(DEV) || defined(STATS)
@@ -476,9 +455,15 @@ void Engine::setThreads(int count) {
 
 bool Engine::fitThreads() {
     const int target = std::min(engine_options.MAX_THREADS, threadLimit());
-    if (target == searchThreads()) return false;
-    threads.set_helpers(target - 1, nnue, tt);
-    return true;
+    const bool count_changed = target != searchThreads();
+    affinity::Plan new_plan = affinity::make_plan(affinity_spec, target);
+    if (!count_changed && affinity_plan.threads == new_plan.threads &&
+        affinity_plan.unpinned == new_plan.unpinned)
+        return false;
+
+    affinity_plan = std::move(new_plan);
+    threads.set_helpers(target - 1, nnue, tt, affinity_plan);
+    return count_changed;
 }
 
 int Engine::searchThreads() const {
@@ -509,6 +494,25 @@ bool Engine::setAffinity(const std::string& value) {
     return true;
 }
 
+void Engine::applyMainThreadAffinity() const {
+    static const std::vector<int> unpinned;
+    const std::vector<int>& cpus = affinity_plan.threads.empty() ? unpinned : affinity_plan.threads[0];
+    const std::vector<int>& fallback = affinity_plan.unpinned.empty() ? unpinned : affinity_plan.unpinned[0];
+    const bool pin_failed = cpus.empty()
+        ? !affinity::apply_to_current_thread(fallback)
+        : !affinity::apply_to_current_thread(cpus);
+    if (pin_failed) affinity::apply_to_current_thread(fallback);
+
+    int helper_failures = threads.placement_failures();
+    std::string report = affinity_plan.summary;
+    report += "; main search thread currently on " + affinity::describe_current_core();
+    if (pin_failed) report += " (the operating system refused the main-thread placement)";
+    if (helper_failures > 0)
+        report += "; the operating system refused to pin " + std::to_string(helper_failures) +
+                  " helper thread(s)";
+    std::cout << "info string " << report << std::endl;
+}
+
 void Engine::ponderHit() {
     pondering = false;
 }
@@ -534,12 +538,19 @@ void Engine::sendBestMove(Move best, bool eval, bool ponder) {
     std::cout << std::endl;
 }
 
-#if defined(DEV) || defined(STATS)
 void Engine::sendSearchInfo() {
+    uint64_t total_nodes = g_stats.nodes;
+    #if defined(DEV) || defined(STATS)
+        total_nodes += g_stats.qnodes;
+    #endif
+    total_nodes += threads.helper_nodes();
+
     std::cout << "info";
     std::cout << " depth " << g_stats.max_completed_depth;
+    #if defined(DEV) || defined(STATS)
     std::cout << " qdepth " << g_stats.max_qdepth;
-    std::cout << " nodes " << g_stats.nodes + g_stats.qnodes;
+    #endif
+    std::cout << " nodes " << total_nodes;
     std::cout << " time " << g_stats.time_ms;
     std::cout << " score cp " << result.eval;
     std::cout << " pv";
@@ -548,7 +559,6 @@ void Engine::sendSearchInfo() {
     }
     std::cout << std::endl;
 }
-#endif
 
 
 // GAME LOGGING
@@ -639,90 +649,10 @@ void Engine::finalizeGameLog() {
     logGameLog();
 }
 
-// CONFIG
 
-void Engine::apply_config_file(const fs::path& path) {
-    auto kv = parse_kv(path);
-    auto get = [&](const std::string& k) -> const std::string* {
-        auto it = kv.find(k); return it != kv.end() ? &it->second : nullptr;
-    };
-    auto b = [](const std::string& v) { return v == "true" || v == "1"; };
-
-    // SearchParams
-    if (auto* v = get("delta_prune_threshold"))    searcher->params.DELTA_PRUNE_THRESHOLD               = std::stoi(*v);
-    if (auto* v = get("see_prune_threshold"))      searcher->params.SEE_PRUNE_THRESHOLD      = std::stoi(*v);
-    if (auto* v = get("aspiration_window"))        searcher->params.ASPIRATION_WINDOW        = std::stoi(*v);
-    if (auto* v = get("aspiration_start_depth"))   searcher->params.ASPIRATION_START_DEPTH   = std::stoi(*v);
-    if (auto* v = get("aspiration_depth_scale"))   searcher->params.ASPIRATION_DEPTH_SCALE  = std::stoi(*v);
-    if (auto* v = get("aspiration_research_scale"))searcher->params.ASPIRATION_RESEARCH_SCALE = std::stof(*v);
-    if (auto* v = get("draw_eval"))                searcher->params.DRAW_EVAL                = std::stoi(*v);
-    if (auto* v = get("contempt"))                 searcher->params.CONTEMPT                 = std::stoi(*v);
-    if (auto* v = get("r_nmp"))                    searcher->params.R_NMP                    = std::stoi(*v);
-    if (auto* v = get("r_lmr_const"))              searcher->params.R_LMR_CONST              = std::stof(*v);
-    if (auto* v = get("r_lmr_denom"))              searcher->params.R_LMR_DENOM              = std::stof(*v);
-    if (auto* v = get("lmr_move_order_threshold")) searcher->params.LMR_MOVE_ORDER_THRESHOLD              = std::stoi(*v);
-    if (auto* v = get("lmr_depth_threshold"))      searcher->params.LMR_DEPTH_THRESHOLD              = std::stoi(*v);
-
-    // EngineOptions
-    if (auto* v = get("move_overhead_ms")) engine_options.MOVE_OVERHEAD_MS= std::stoi(*v);
-    if (auto* v = get("hash_size_mb"))     engine_options.HASH_SIZE_MB     = std::stoi(*v);
-    if (auto* v = get("max_threads"))     engine_options.MAX_THREADS     = std::stoi(*v);
-    if (auto* v = get("cpu_affinity"))        setAffinity(*v);
-    if (auto* v = get("pondering"))        engine_options.PONDERING         = b(*v);
-    if (auto* v = get("opening_book_path")) engine_options.opening_book_path = Logging::project_root / *v;
-    if (auto* v = get("syzygy_path"))       engine_options.syzygy_path       = Logging::project_root / *v;  
-}
-
-void Engine::create_config_file(std::string config_name) {
-    // ensure .ini extension
-    if (config_name.size() < 4 || config_name.substr(config_name.size() - 4) != ".ini")
-        config_name += ".ini";
-
-    fs::path dir = fs::path(PROJECT_ROOT) / "bin/configs";
-    fs::create_directories(dir);  // ensure directory exists
-    fs::path out_path = dir / config_name;
-
-    std::ofstream f(out_path);
-    if (!f) {
-        std::cerr << "Error: could not open " << out_path << " for writing.\n";
-        return;
-    }
-
-    auto b = [](bool v) -> std::string { return v ? "true" : "false"; };
-
-    f << "# =========================================================\n"
-      << "# " << fs::path(config_name).stem().string() << " Engine Configuration\n"
-      << "# =========================================================\n\n";
-
-    // ── [search] ─────────────────────────────────────────────────────────────
-    f << "[search]\n"
-      << "delta_prune_threshold      = " << searcher->params.DELTA_PRUNE_THRESHOLD      << "\n"
-      << "see_prune_threshold        = " << searcher->params.SEE_PRUNE_THRESHOLD        << "\n\n"
-      << "aspiration_window          = " << searcher->params.ASPIRATION_WINDOW          << "\n"
-      << "aspiration_start_depth     = " << searcher->params.ASPIRATION_START_DEPTH     << "\n"
-      << "aspiration_depth_scale     = " << searcher->params.ASPIRATION_DEPTH_SCALE     << "\n"
-      << "aspiration_research_scale  = " << searcher->params.ASPIRATION_RESEARCH_SCALE  << "\n\n"
-      << "draw_eval                  = " << searcher->params.DRAW_EVAL                  << "\n"
-      << "contempt                   = " << searcher->params.CONTEMPT                   << "\n\n"
-      << "r_nmp                      = " << searcher->params.R_NMP                      << "\n"
-      << "r_lmr_const                = " << searcher->params.R_LMR_CONST                << "\n"
-      << "r_lmr_denom                = " << searcher->params.R_LMR_DENOM                << "\n\n"
-      << "lmr_move_order_threshold   = " << searcher->params.LMR_MOVE_ORDER_THRESHOLD   << "\n"
-      << "lmr_depth_threshold        = " << searcher->params.LMR_DEPTH_THRESHOLD        << "\n\n\n";
-
-    // ── [engine] ──────────────────────────────────────────────────────────────
-    f << "[engine]\n"
-      << "move_overhead_ms  = " << engine_options.MOVE_OVERHEAD_MS   << "\n"
-      << "max_threads       = " << engine_options.MAX_THREADS        << "\n"
-      << "hash_size_mb      = " << engine_options.HASH_SIZE_MB       << "\n"
-      << "pondering         = " << b(engine_options.PONDERING)       << "\n\n"
-      << "opening_book_path = " << fs::relative(engine_options.opening_book_path, Logging::project_root).generic_string() << "\n"
-      << "syzygy_path       = " << fs::relative(engine_options.syzygy_path,       Logging::project_root).generic_string() << "\n";
-
-    std::cout << "Config written to " << out_path << "\n";
-}
-
-// TESTING
+// ──────────────────────────────────────────────────────────────
+//                          TESTING
+// ──────────────────────────────────────────────────────────────
 
 uint64_t Engine::perft(int depth) {
     //ScopedTimer timer(T_PERFT);

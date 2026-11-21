@@ -113,8 +113,7 @@ public:
     TranspositionTable tt; // outside searcher for future multi-thread
     SearchThreadPool threads; // lazy SMP helper threads
     affinity::Spec affinity_spec; // parsed engine_options.CPU_AFFINITY
-    std::string affinity_report; // last thread placement reported (printed when it changes)
-    int affinity_failures = 0;
+    affinity::Plan affinity_plan;
 
     // boards
     Board game_board;        // main game board
@@ -158,6 +157,7 @@ public:
     int threadLimit() const;    // one thread per available CPU (affinity::cpu_limit), at most MAX_SEARCH_THREADS
     void reportThreads() const; // "info string set Threads = N", noting a capped request
     bool setAffinity(const std::string& value); // Affinity option; an invalid value is reported and ignored
+    void applyMainThreadAffinity() const;
     //  Result
     void sendBestMove(Move bestMove, bool eval = false, bool ponder = false); // output of it_dp
     void sendSearchInfo(); // nodes, time, depth, eval, pv, etc (info string)
@@ -180,10 +180,6 @@ public:
     void nnueEvalTest();
     void nnueSIMDTest();
     void moveOrderingTest(int depth);
-
-    // --- Config ---
-    void apply_config_file(const fs::path& path);
-    void create_config_file(std::string config_name);
 
 private:
     void publishSearchStats(std::vector<SearchStats> stats);

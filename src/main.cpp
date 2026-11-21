@@ -25,9 +25,8 @@
 // ---------------------
 // Thread scheduling
 // ---------------------
-// search threads are placed on CPUs at the start of every search
-// according to the affinity option (affinity.h)
-// nothing is pinned at startup 
+// The persistent search worker is placed when it starts. Helper threads are
+// placed when created; changing Threads or Affinity refreshes their placement.
 void set_thread_precendence() {
 #if defined(__APPLE__)
     thread_port_t thread = mach_thread_self();
@@ -53,7 +52,7 @@ int main() {
     // inits
     Logging::initFiles();
     PrecomputedMoveData::init();
-#ifdef _WIN32
+#if defined(__BMI2__)
     Magics::initPEXTMagics(); //initMagics();
 #else 
     Magics::initMagics();

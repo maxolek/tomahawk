@@ -19,13 +19,13 @@
 //
 // CPU numbers are the operating system's logical processor numbers (as in Task
 // Manager); on Windows with several processor groups, cpu = 64 * group + number.
-// Only the CPUs the process was given are used, re-read at every search: the
+// Only the CPUs the process was given are used when the plan is created: the
 // affinity mask and, on Windows 10+, the process default CPU set (fastchess
 // -use-affinity uses CPU sets on Windows 11); on Linux, the affinity of the
 // initial thread (taskset, match runners). So an assignment made by the program
-// that started the engine is respected. Each search thread applies its placement
-// to itself at the start of every search. Supported on Windows and Linux;
-// elsewhere nothing is pinned.
+// that started the engine is respected. Search threads apply their placement
+// once when they start; changing Threads or Affinity creates a new plan.
+// Supported on Windows and Linux; elsewhere nothing is pinned.
 
 #ifndef AFFINITY_H
 #define AFFINITY_H

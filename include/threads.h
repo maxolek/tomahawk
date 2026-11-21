@@ -6,8 +6,8 @@
 // move generator, NNUE accumulator stack and Searcher (killers, history), and
 // shares the transposition table with the main thread; that shared table is how
 // helper work reaches the main search. The main thread's result is the one
-// reported, and when it finishes it stops the helpers. At the start of every
-// search each thread moves itself to its CPUs (Affinity option, affinity.h).
+// reported, and when it finishes it stops the helpers. Search threads are
+// pinned once when they start; changing Threads or Affinity recreates helpers.
 
 #ifndef THREADS_H
 #define THREADS_H
@@ -24,21 +24,21 @@
 
 class HelperThread {
 public:
-    HelperThread(NNUE& nnue, TranspositionTable& tt);
+    HelperThread(NNUE& nnue, TranspositionTable& tt,
+                 const std::vector<int>& cpus, const std::vector<int>& fallback_cpus);
     ~HelperThread();
     HelperThread(const HelperThread&) = delete;
     HelperThread& operator=(const HelperThread&) = delete;
 
-    // Start searching `root` in the background on `cpus` (see affinity.h), or on
-    // `fallback` if the OS refuses them; the helper must be idle.
-    void start(const Board& root, const SearchLimits& limits, const SearchParams& params,
-               const std::vector<int>& cpus, const std::vector<int>& fallback);
+    // Start searching `root` in the background; the helper must be idle.
+    void start(const Board& root, const SearchLimits& limits, const SearchParams& params);
     // Block until the current search (if any) has returned.
     void wait();
+    void wait_until_placed();
     SearchStats completed_stats() const;
     // Nodes of the last search; valid after wait().
     uint64_t nodes() const { return searcher->nodes; }
-    // The OS refused the placement of the last search; valid after wait().
+    // The OS refused this helper's configured placement.
     bool placement_failed() const { return pin_failed; }
 
 private:
@@ -50,13 +50,14 @@ private:
     AccumulatorStack acc;
     std::unique_ptr<Searcher> searcher;
     SearchLimits limits;
-    std::vector<int> cpus;          // placement for the next search, applied by the helper itself
-    std::vector<int> fallback_cpus; // used if the OS refuses `cpus`
+    std::vector<int> cpus;
+    std::vector<int> fallback_cpus;
     bool pin_failed = false;
 
     mutable std::mutex mutex;
     std::condition_variable cv;
     bool searching = false;
+    bool placement_ready = false;
     bool exiting = false;
     SearchStats last_search_stats;
     std::thread thread; // started last, after everything it uses exists
@@ -69,14 +70,14 @@ public:
 
     ~SearchThreadPool() { stop_and_wait(); }
 
-    // Keep `count` helper threads (Threads - 1). Not while a search is running.
-    void set_helpers(int count, NNUE& nnue, TranspositionTable& tt);
+    // Keep `count` helper threads (Threads - 1), using the configured placement.
+    void set_helpers(int count, NNUE& nnue, TranspositionTable& tt,
+                     const affinity::Plan& placement);
     int helper_count() const { return static_cast<int>(helpers.size()); }
 
     // Starts every helper on `root`; the caller clears the stop signal before
-    // launching a search. Helper i runs on placement.threads[i + 1].
-    void start(const Board& root, const SearchLimits& limits, const SearchParams& params,
-               const affinity::Plan& placement);
+    // launching a search.
+    void start(const Board& root, const SearchLimits& limits, const SearchParams& params);
     // Raises the stop signal and waits for every helper to return.
     void stop_and_wait();
     // Sum of the helpers' node counts for the last search.

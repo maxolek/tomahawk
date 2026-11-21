@@ -34,14 +34,19 @@ static std::string build_simd_features() {
 
 UCI::UCI(Engine& eng) {
     engine=&eng;
+    search_thread = std::thread(&UCI::searchLoop, this);
+    std::unique_lock<std::mutex> lock(search_mutex);
+    search_cv.wait(lock, [this] { return worker_ready; });
 }  
 
 UCI::~UCI() {
-    if (search_thread.joinable()) {
-        if (search_active.load(std::memory_order_relaxed))
-            engine->stopSearch();
-        search_thread.join();
+    waitForSearch();
+    {
+        std::lock_guard<std::mutex> lock(search_mutex);
+        shutdown_search_worker = true;
     }
+    search_cv.notify_all();
+    if (search_thread.joinable()) search_thread.join();
 }
 
 void UCI::loop() {
@@ -57,11 +62,6 @@ void UCI::loop() {
         if (token == "quit") break;
     }
 
-    if (search_thread.joinable()) {
-        if (search_active.load(std::memory_order_relaxed))
-            engine->stopSearch();
-        search_thread.join();
-    }
 }
 
 void UCI::handleCommand(const std::string& line) {
@@ -126,6 +126,7 @@ void UCI::handleCommand(const std::string& line) {
         std::cout << "readyok\n";
     }
     else if (token == "setoption") {
+        waitForSearch();
         handleSetOption(iss);
     }
     else if (token == "ucinewgame") {
@@ -140,28 +141,10 @@ void UCI::handleCommand(const std::string& line) {
         handleGo(iss);
     }
     else if (token == "stop") {
-        if (search_active.load(std::memory_order_relaxed))
-            engine->stopSearch();
-        if (search_thread.joinable()) search_thread.join();
+        waitForSearch();
     }
     else if (token == "quit") {
-        if (search_active.load(std::memory_order_relaxed))
-            engine->stopSearch();
-        if (search_thread.joinable()) search_thread.join();
-    }
-    else if (token == "config") { // see config options and apply
-        fs::path dir = fs::path(PROJECT_ROOT) / "bin/configs";
-        handleConfigList(dir);
-    }
-    else if (token == "apply_config") { // apply config option (without seeing options)
-        std::string name; 
-        iss >> name;
-        handleConfigSet(name);
-    }
-    else if (token == "save_config") { // save current config
-        std::string name;
-        iss >> name;
-        engine->create_config_file(name);
+        waitForSearch();
     }
     else if (token == "ponderhit") {
         //
@@ -275,8 +258,14 @@ void UCI::handleSetOption(std::istringstream& iss) {
         }
     }
 
+    const int previous_threads = engine->engine_options.MAX_THREADS;
+    const std::string previous_affinity = engine->engine_options.CPU_AFFINITY;
+
     // Pass parsed option to engine
     engine->setOption(name, value);
+    if ((name == "Threads" && previous_threads != engine->engine_options.MAX_THREADS) ||
+        (name == "Affinity" && previous_affinity != engine->engine_options.CPU_AFFINITY))
+        updateSearchThreadAffinity();
 }
 
 
@@ -338,6 +327,8 @@ void UCI::handleGo(std::istringstream& iss) {
         else if (token == "infinite") infinite = true;
     }
 
+    waitForSearch();
+
     // Apply settings to engine
     engine->settings.wtime = wtime;
     engine->settings.btime = btime;
@@ -349,36 +340,73 @@ void UCI::handleGo(std::istringstream& iss) {
     engine->settings.movetime = movetime;
     engine->settings.infinite = infinite;
 
-    // Otherwise start a normal search
-    if (search_thread.joinable()) {
-        if (search_active.load(std::memory_order_relaxed))
-            engine->stopSearch();
-        search_thread.join();
-    }
-
-    const bool evalRequest = sendEval;
     engine->resetSearchStop();
-    search_active.store(true, std::memory_order_relaxed);
-    search_thread = std::thread([this, evalRequest] () {
-        runSearch(evalRequest);
-    });
+    {
+        std::lock_guard<std::mutex> lock(search_mutex);
+        pending_eval_request = sendEval;
+        search_pending = true;
+        search_active.store(true, std::memory_order_relaxed);
+    }
+    search_cv.notify_all();
 }
 
 void UCI::runSearch(bool evalRequest) {
     engine->trackGame();
     engine->startSearch();
-#if defined(DEV) || defined(STATS)
     engine->sendSearchInfo();
-#endif
-    search_active.store(false, std::memory_order_relaxed);
     engine->sendBestMove(engine->bestMove, evalRequest);
 }
 
 void UCI::waitForSearch() {
-    if (!search_thread.joinable()) return;
     if (search_active.load(std::memory_order_relaxed))
         engine->stopSearch();
-    search_thread.join();
+    std::unique_lock<std::mutex> lock(search_mutex);
+    search_cv.wait(lock, [this] {
+        return !search_active.load(std::memory_order_relaxed) && !search_pending;
+    });
+}
+
+void UCI::searchLoop() {
+    engine->applyMainThreadAffinity();
+    {
+        std::lock_guard<std::mutex> lock(search_mutex);
+        worker_ready = true;
+    }
+    search_cv.notify_all();
+
+    std::unique_lock<std::mutex> lock(search_mutex);
+    while (true) {
+        search_cv.wait(lock, [this] {
+            return search_pending || affinity_pending || shutdown_search_worker;
+        });
+        if (shutdown_search_worker) return;
+        if (affinity_pending) {
+            affinity_pending = false;
+            lock.unlock();
+            engine->applyMainThreadAffinity();
+            lock.lock();
+            search_cv.notify_all();
+            continue;
+        }
+
+        const bool evalRequest = pending_eval_request;
+        search_pending = false;
+        lock.unlock();
+        runSearch(evalRequest);
+        lock.lock();
+        search_active.store(false, std::memory_order_relaxed);
+        search_cv.notify_all();
+    }
+}
+
+void UCI::updateSearchThreadAffinity() {
+    {
+        std::lock_guard<std::mutex> lock(search_mutex);
+        affinity_pending = true;
+    }
+    search_cv.notify_all();
+    std::unique_lock<std::mutex> lock(search_mutex);
+    search_cv.wait(lock, [this] { return !affinity_pending; });
 }
 
 // test funcs
@@ -429,57 +457,4 @@ void UCI::handleClearTT() {
 
     engine->tt.clear();
     std::cout << "\nCleared!\n" << std::endl;
-}
-
-// configs
-
-void UCI::handleConfigList(fs::path dir) {
-    // print config options
-    std::cout << "Available config files:\n\n";
-
-    int idx = 1;
-    std::vector<fs::path> configs;
-
-    for (const auto& entry : fs::directory_iterator(dir)) {
-        if (!entry.is_regular_file()) continue;
-        if (entry.path().extension() != ".ini") continue;
-
-        configs.push_back(entry.path());
-
-        std::cout << "  [" << idx++ << "] "
-                << entry.path().stem().string()
-                << "\n";
-    }
-
-    if (configs.empty()) {
-        std::cout << "  (no config files found)\n";
-        return;
-    }
-
-    // user select config file
-    std::cout << "\nSelect config number: ";
-
-    int choice;
-    std::cin >> choice;
-
-    if (choice < 1 || choice > (int)configs.size()) {
-        std::cout << "Invalid selection.\n";
-        return;
-    }
-
-    // apply config
-    engine->apply_config_file(configs[(size_t)(choice - 1)]);
-
-    // apply specifics (e.g. tt.resize)
-    engine->tt.resize(engine->engine_options.HASH_SIZE_MB);
-}
-
-void UCI::handleConfigSet(std::string name) {
-    fs::path path = fs::path(PROJECT_ROOT) / "bin/configs" / name;
-    if (path.extension() != ".ini") path += ".ini";
-    
-    engine->apply_config_file(path);
-
-    // apply specifics (e.g. tt.resize)
-    engine->tt.resize(engine->engine_options.HASH_SIZE_MB);
 }
