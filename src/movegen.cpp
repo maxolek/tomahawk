@@ -322,8 +322,9 @@ void MoveGenerator::generatePawnPushes(bool ours) {
     Move potential_move;
     int start_square;
 
-    bool on_starting_rank;
+    const int pawn_step = (side == 0) ? 8 : -8;
     int two_step;
+    bool on_starting_rank;
 
     while (valid_pawns) {
         start_square = getLSB(valid_pawns);
@@ -337,12 +338,12 @@ void MoveGenerator::generatePawnPushes(bool ours) {
         // Remove double push if blocked
         on_starting_rank = (side == 0) ? (((1ULL << start_square) & Bits::mask_rank_2) != 0) 
                                         : (((1ULL << start_square) & Bits::mask_rank_7) != 0);
-        if (on_starting_rank && 
-            !get_bit(potential_moves_bb, 
-                     start_square + ((side == 0) ? 8 : -8))
-        ) {
-            two_step = start_square + ((side == 0) ? 16 : -16);
-            potential_moves_bb &= ~(1ULL << two_step);
+        two_step = start_square + 2 * pawn_step;
+
+        if (on_starting_rank) {
+            const int one_step = start_square + pawn_step;
+            if (!get_bit(potential_moves_bb, one_step)) // if square in front is blocked
+                potential_moves_bb &= ~(1ULL << two_step);
         }
 
         potential_moves_bb = limitPinnedMoves(start_square, potential_moves_bb);

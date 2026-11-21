@@ -62,7 +62,7 @@ if (VERSION AND NOT VERSION STREQUAL "dev" AND NOT CMAKE_BUILD_TYPE STREQUAL "De
 else()
     set(ENGINE_OUTPUT_NAME tomahawk)
 endif()
-file(TO_CMAKE_PATH "${ENGINE_OUTPUT_DIR}/${ENGINE_OUTPUT_NAME}.nnue.bin" NNUE_BUNDLE_PATH)
+file(TO_CMAKE_PATH "${ENGINE_OUTPUT_DIR}/nnue/${ENGINE_OUTPUT_NAME}.nnue.bin" NNUE_BUNDLE_PATH)
 
 # -------------------
 # Source files
@@ -91,6 +91,7 @@ if (SMALL_NET)
 endif()
 target_compile_definitions(tomahawk PRIVATE "NNUE_WEIGHT_FILE=\"${NNUE_BUNDLE_PATH}\"")
 add_custom_command(TARGET tomahawk POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${ENGINE_OUTPUT_DIR}/nnue"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${NNUE_FILE}" "${NNUE_BUNDLE_PATH}"
     VERBATIM
 )

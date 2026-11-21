@@ -217,7 +217,7 @@ These describe the checked-in behavior rather than all capabilities suggested by
 
 - **Single search worker:** `Threads` is advertised with min/max 1. Search runs synchronously inside the UCI listener, so it cannot consume `stop` or `quit` while searching. `Engine::stopSearch()` also changes the engine's limits, while iterative deepening uses a copy.
 - **Partial search controls:** `go nodes` is parsed but `SearchLimits` has no node budget. `go infinite` does not bypass the ordinary clock calculation. `Ponder` is an option, but the UCI `ponderhit` branch is empty. `UCI_ShowWDL` is stored without a WDL-output path in the active `go` handler.
-- **Network loading:** CMake selects a compatible network with `NNUE_FILE` (or its `SMALL_NET`-dependent default), copies it beside the executable as `<engine>.nnue.bin`, and compiles in that fixed path. Networks cannot be changed through UCI or engine config. See [loading and compatibility](../nnue/weights/readme.md#loading-and-compatibility).
+- **Network loading:** CMake selects a compatible network with `NNUE_FILE` (or its `SMALL_NET`-dependent default), copies it to the sibling `nnue/<engine>.nnue.bin` folder, and compiles in that fixed path. Networks cannot be changed through UCI or engine config. See [loading and compatibility](../nnue/weights/readme.md#loading-and-compatibility).
 - **Optional/stub services:** an opening book is attempted if its configured path is nonempty. Syzygy loading, `bench`, and `speedtest` are stubs rather than active implementations.
 - **Search details:** qsearch stand pat in check, timeout-result retention, root capture classification, and TT handling have specific limitations documented in [search.md](search.md#limits-results-and-implementation-boundaries).
 

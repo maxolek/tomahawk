@@ -2,7 +2,7 @@
 
 [Project overview](../../README.md) | [NNUE architecture](../../docs/nnue.md) | [Engine integration](../../docs/engine.md)
 
-This directory contains five network artifacts spanning three architecture generations. The build selects the network architecture with `SMALL_NET` and the compatible weights with `NNUE_FILE`; release builds bundle the selected weights beside the executable.
+This directory contains five network artifacts spanning three architecture generations. The build selects the network architecture with `SMALL_NET` and the compatible weights with `NNUE_FILE`; release builds bundle the selected weights in the sibling `nnue/` folder beside the executable.
 
 Filenames, byte counts, SHA-256 checksums, and the compiled default below are verified from this checkout. Architecture-family assignments for historical files follow the existing architecture notes and filenames; the three v3 files have the exact size expected by the current loader. File size alone does not validate tensor contents. Training provenance, strength, and release decisions are intentionally left as **TODO** fields for the owner to fill in. A default is not a claim that a net is the strongest.
 
@@ -13,10 +13,10 @@ The active dimensions, quantization, and layout are fixed in [network.h](../netw
 The v3 loader reads 15,867,712 bytes of tensors in order: `l0w`, `l0b`, `l1w`, `l1b`, `l2w`, `l2b`, `l3w`, `l3b`. It rejects undersized files and does not inspect a version header or infer an architecture from the filename. The `SMALL_NET` loader separately recognizes its two supported head layouts from the padded tensor size; the historical v2 net is not compatible with a v3 build.
 
 The selected network is fixed per build. CMake chooses the default from
-`SMALL_NET` or accepts an explicit `-DNNUE_FILE=<path>`, copies that file next
-to the executable as `<engine>.nnue.bin`, and compiles the bundled path into
-the engine. The registry hashes this bundled file, so builds using different
-weights are recorded as distinct engines.
+`SMALL_NET` or accepts an explicit `-DNNUE_FILE=<path>`, copies that file to
+`nnue/<engine>.nnue.bin` beside the executable, and compiles the bundled path
+into the engine. The registry hashes this bundled file, so builds using
+different weights are recorded as distinct engines.
 
 For release builds, use `release.py --nnue-file <path>` to select a compatible
 network and rebuild. The `SMALL_NET` setting must match the network format.
