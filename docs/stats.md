@@ -53,14 +53,14 @@ Quiescence increments its counter after the early time/draw and stand-pat return
 
 | Counter family | What it helps explain |
 |---|---|
-| TT hits, returns, stores, overwrites | A matching entry is distinct from a score usable for cutoff; storage/replacement measures another event |
+| TT hits, returns, stores | A matching entry is distinct from a score usable for cutoff; storage/replacement measures another event |
 | Fail highs/lows and fail-high move-index histogram | Whether ordering finds cutoffs early; buckets are indices 0, 1, 2, 3, 4–7, 8+ |
 | Aspiration fail-high/fail-low retries | How often the previous score estimate needs a wider window |
 | PVS re-search types | Full-depth verification after reduction, full-window interior re-search, and full-window root re-search |
 | SEE, delta, reverse-futility, quiet-futility pruning | Which selective gates eliminate work |
 | NMP attempts and fail highs | How often passing produces a cutoff; the console label `NMP Fails` refers to fail highs |
 
-Use the raw counts with their actual denominators. For example, `dumpstats` computes its TT hit percentage as `hits / (hits + stores)`, not hits divided by all probes. Fail-high histogram mean/percentiles use representative values for grouped buckets, so they are estimates. A declared field need not be populated: `tt_fill_ratio` and `tt_overwritten` in `g_stats` should not be assumed to match the TT object's live occupancy and separate counters.
+Use the raw counts with their actual denominators. For example, `dumpstats` computes its TT hit percentage as `hits / (hits + stores)`, not hits divided by all probes. Fail-high histogram mean/percentiles use representative values for grouped buckets, so they are estimates. `dump_tt` reports table-owned overwrites since the most recent TT clear or resize; concurrent writers may make this diagnostic approximate.
 
 ## Collection lifetime and output
 
@@ -70,7 +70,7 @@ For the normal tree-search path, `Engine::startSearch()` creates a search UUID, 
 |---|---|---|
 | `dumpstats` | All builds; detailed sections in DEV | Console summary, plus DEV counter families and depth/ply tables |
 | `dumpmoves` | DEV only | Last `SearchResult` root records: move, evaluation, time, nodes |
-| `dump_tt` | Detailed output in DEV | Search TT counters and current live fill percentage; other builds print a no-stats message |
+| `dump_tt` | All builds | TT-owned overwrite count since clear/resize; DEV/STATS additionally show last-search stores/hits and current live fill percentage |
 | `search_<instance>.jsonl` | End of a normal DEV tree search | Search result, context, counters and arrays |
 | `timing_<instance>.jsonl` | End of a normal DEV tree search; also written by `perft` in all builds | Per-timer total milliseconds, calls, and average milliseconds |
 | `game_<instance>.jsonl` | Game logging, not DEV-gated | Game outcome/reason, moves, elapsed time, start position and request settings |

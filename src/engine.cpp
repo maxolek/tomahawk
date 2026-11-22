@@ -1,11 +1,11 @@
 // engine_options.cpp
 #include <engine.h>
+#include <tests.h>
+#include "../nnue/tests.h"
+#include <algorithm>
 #include <iostream>
-#include <thread>
 #include <chrono>
 #include <sstream>
-#include <fstream>
-
 
 // ------------------
 // -- Constructors --
@@ -15,7 +15,7 @@ EngineMode mode = EngineMode::ANALYSIS;
 EngineSide side = EngineSide::UNKNOWN;
 GameTracker tracker;
 
-Engine::Engine() {
+Engine::Engine() : tt(engine_options.HASH_SIZE_MB) {
     game_board = Board();
     search_board = game_board; //Board(game_board);
 
@@ -70,9 +70,13 @@ void Engine::setOption(const std::string& name, const std::string& value) {
         std::cout << "info string set Move Overhead = " << engine_options.MOVE_OVERHEAD_MS << std::endl;
     } 
     else if (name == "Hash") {
-        engine_options.HASH_SIZE_MB = std::stoi(value);
-        tt.resize(engine_options.HASH_SIZE_MB);
-        std::cout << "info string set Hash = " << engine_options.HASH_SIZE_MB << std::endl;
+        const int hash_size_mb = std::stoi(value);
+        if (tt.resize(hash_size_mb)) {
+            engine_options.HASH_SIZE_MB = hash_size_mb;
+            std::cout << "info string set Hash = " << engine_options.HASH_SIZE_MB << std::endl;
+        } else {
+            std::cout << "info string keeping Hash = " << engine_options.HASH_SIZE_MB << std::endl;
+        }
     } 
     else if (name == "Threads") {
         setThreads(std::stoi(value));
@@ -321,6 +325,7 @@ void Engine::computeSearchTime(const SearchSettings& search_settings) {
 
 void Engine::startSearch() {
     resetSearchStats();
+    result_depth = 0;
 
     // set nnue
     //nnue.build_accumulators(search_board);
@@ -375,16 +380,46 @@ void Engine::startSearch() {
     std::copy_n(movegen->moves, count, first_moves);
 
     // --- run search ---
-    // Helpers search the same root and share the TT; the main thread's result is used.
+    // Helpers search the same root and share the TT; their best moves vote with the main thread.
     computeSearchTime(settings);
 
     // --- search ---
     limits.stop_signal = &threads.stop_signal;
     threads.start(search_board, limits, searcher->params);
     result = searcher->iterativeDeepening(first_moves, count, limits);
+
     if (count > 0 && Move::SameMove(result.bestMove, Move::NullMove()))
         result.bestMove = first_moves[0];
     threads.stop_and_wait();
+
+    const Move main_move = result.bestMove;
+    const int main_eval = result.eval;
+    const std::vector<Move> main_pv = result.best_line.to_vector();
+    g_stats.move = main_move;
+    g_stats.eval = main_eval;
+    g_stats.principal_variation = main_pv;
+
+    ThreadVoteResult vote = threads.vote(result, g_stats.max_completed_depth);
+    if (!Move::SameMove(vote.best_move, Move::NullMove())) {
+        result_depth = vote.depth;
+        result.bestMove = vote.best_move;
+        result.eval = vote.eval;
+        result.best_line = vote.best_line;
+
+        std::cout << "info string thread vote: " << result.bestMove.uci()
+                  << " (weight " << vote.weight << "/" << vote.total_weight
+                  << ", votes " << vote.votes << "/" << vote.total_votes << "; ";
+        for (size_t i = 0; i < vote.tallies.size(); ++i) {
+            if (i) std::cout << ", ";
+            const ThreadVoteResult::Tally& tally = vote.tallies[i];
+            std::cout << tally.move.uci() << "=" << tally.weight
+                      << "/" << tally.votes;
+        }
+        std::cout << ")\n";
+    } else {
+        result_depth = g_stats.max_completed_depth;
+    }
+
     #if defined(DEV) || defined(STATS)
         g_stats.tt_fill_ratio = tt.fillRatio();
     #endif
@@ -396,9 +431,6 @@ void Engine::startSearch() {
     // finalize cumulative stats
     g_stats.time_ms = (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - start_time).count();
-    g_stats.principal_variation = pv_line;
-    g_stats.eval = result.eval;
-    g_stats.move = result.bestMove;
     #if !defined(DEV) && !defined(STATS)
         g_stats.nodes = searcher->nodes;
     #endif
@@ -415,8 +447,7 @@ void Engine::startSearch() {
         logTimingStats(game_board.getBoardFEN());
     #endif 
     std::vector<SearchStats> stats{g_stats};
-    std::vector<SearchStats> helper_stats = threads.completed_stats();
-    stats.insert(stats.end(), helper_stats.begin(), helper_stats.end());
+    stats.insert(stats.end(), vote.helper_stats.begin(), vote.helper_stats.end());
     #if defined(DEV) || defined(STATS)
         for (SearchStats& thread_stats : stats)
             thread_stats.tt_fill_ratio = g_stats.tt_fill_ratio;
@@ -546,7 +577,7 @@ void Engine::sendSearchInfo() {
     total_nodes += threads.helper_nodes();
 
     std::cout << "info";
-    std::cout << " depth " << g_stats.max_completed_depth;
+    std::cout << " depth " << result_depth;
     #if defined(DEV) || defined(STATS)
     std::cout << " qdepth " << g_stats.max_qdepth;
     #endif
@@ -647,203 +678,4 @@ void Engine::trackGame() {
 void Engine::finalizeGameLog() {
     g_gamelog.finalEval = nnue.full_eval(game_board);
     logGameLog();
-}
-
-
-// ──────────────────────────────────────────────────────────────
-//                          TESTING
-// ──────────────────────────────────────────────────────────────
-
-uint64_t Engine::perft(int depth) {
-    //ScopedTimer timer(T_PERFT);
-    if (depth == 0) {return 1;}
-
-    uint64_t nodes = 0;
-
-    Move moves[MAX_MOVES];
-    int count = movegen->generateMoves(search_board, false);
-    std::copy_n(movegen->moves, count, moves);
-
-    // we can skip the last make/unmake move by utilizing
-    // that the num_moves at depth=1 is the perft value for that branch
-    // its a decent speed up
-    //if (depth == 1) return count; 
-
-    Move* end = moves + count;
-    for (Move* m = moves; m < end; ++m) {
-        search_board.MakeMove(*m);
-        nodes += perft(depth - 1);
-        search_board.UnmakeMove(*m);
-    }
-
-    return nodes;
-}
-
-void Engine::perftPrint(int depth) {
-    if (depth < 0) {
-        std::cerr << "Perft depth must not be negative\n";
-        return;
-    }
-    if (depth == 0) {
-        std::cout << "Nodes searched: 1\n";
-        return;
-    }
-
-    Move moves[MAX_MOVES];
-    int count = movegen->generateMoves(search_board, false);
-    std::copy_n(movegen->moves, count, moves);
-
-    uint64_t nodes = 0;
-    Move* end = moves + count;
-    for (Move* m = moves; m < end; ++m) {
-        search_board.MakeMove(*m);
-        nodes += perft(depth - 1);
-        search_board.UnmakeMove(*m);
-    }
-
-    std::cout << "Nodes searched: " << nodes << '\n';
-}
-
-void Engine::perftDivide(int depth) {
-    if (depth < 0) {
-        std::cerr << "Perft depth must not be negative\n";
-        return;
-    }
-    if (depth == 0) {
-        std::cout << "Total: 1\n";
-        return;
-    }
-
-    Move moves[MAX_MOVES];
-    int count = movegen->generateMoves(search_board, false);
-    std::copy_n(movegen->moves, count, moves);
-
-    uint64_t total = 0;
-    Move* end = moves + count;
-
-    for (Move* m = moves; m < end; ++m) {
-        search_board.MakeMove(*m);
-        const uint64_t nodes = perft(depth - 1);
-        search_board.UnmakeMove(*m);
-        
-        std::cout << m->uci() << ": " << nodes << '\n';
-        total += nodes;
-    }
-
-    std::cout << "Total: " << total << "\n";
-
-    #if defined(DEV) || defined(TIMING)
-    logTimingStats(game_board.getBoardFEN());
-    #endif
-}
-
-void Engine::SEETest(int capture_square) {
-    int count = movegen->generateMoves(search_board, true);
-
-    for (int i = 0; i < count; i++) {
-        Move m = movegen->moves[i];
-        // check if capture (otherwise will incl checks and other qsearch stuff)
-        if (m.TargetSquare() == capture_square) {
-            int see = searcher->SEE(search_board, m);
-            std::cout << "SEE (" << m.uci() << ") = " << see << std::endl;
-        }
-    }
-}
-
-void Engine::nnueEvalTest() {
-    nnue.build_halfka_accumulators(search_board);
-
-#ifdef SMALL_NET
-    int eval = nnue.eval_screlu(search_board.is_white_move, (search_board.colorBitboards[0] | search_board.colorBitboards[1]));
-    int simd_eval = nnue.eval_screlu_simd(search_board.is_white_move, (search_board.colorBitboards[0] | search_board.colorBitboards[1]));
-#else
-    int eval = nnue.evaluate(search_board.is_white_move, (search_board.colorBitboards[0] | search_board.colorBitboards[1]));
-    int simd_eval = nnue.eval_simd(search_board.is_white_move, (search_board.colorBitboards[0] | search_board.colorBitboards[1]));
-#endif
-
-    std::cout << "=== NNUE Evaluation ===\n";
-    std::cout << "NNUE Eval: " << eval << " centipawns\n";
-    std::cout << "SIMD Eval: " << simd_eval << " centipawns\n";
-}
-
-void Engine::nnueSIMDTest() {
-    std::ifstream file("../san-jacinto/bin/test_positions/perft.epd");
-
-    if (!file) {
-        std::cerr << "Could not open perft positions file\n";
-        return;
-    }
-
-    std::string line;
-    int position = 0;
-    int errors = 0;
-
-    while (std::getline(file, line)) {
-        if (line.empty())
-            continue;
-
-        // FEN is everything before the first ';'
-        std::string fen = line.substr(0, line.find(';'));
-        Board b = Board(fen);
-        ++position;
-
-        nnue.build_halfka_accumulators(b);
-#ifdef SMALL_NET
-        int scalar = nnue.eval_screlu(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
-        int simd = nnue.eval_screlu_simd(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
-#else
-        int scalar = nnue.evaluate(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
-        int simd = nnue.eval_simd(b.is_white_move, (b.colorBitboards[0] | b.colorBitboards[1]));
-#endif
-
-        if (scalar != simd) {
-            ++errors;
-            std::cerr << "\n[SIMD MISMATCH]"
-                      << "\nPosition: " << position
-                      << "\nFEN:      " << fen
-                      << "\nScalar:   " << scalar
-                      << "\nSIMD:     " << simd
-                      << "\n";
-        }
-    }
-
-    std::cout << "\nSIMD NNUE TEST COMPLETE\n"
-              << "Positions: " << position
-              << "\nErrors:    " << errors
-              << "\n";
-}
-
-void Engine::moveOrderingTest(int /*depth*/) {
-    std::cout << "=== Move Ordering Test ===\n";
-
-    // Generate moves at root
-    int moveCount = movegen->generateMoves(search_board, false);
-    Move* moves = movegen->moves;
-
-    std::vector<std::pair<Move, int>> scoredMoves;
-
-    // Use empty TT and PV for testing at root
-    Move ttMove;               // assume default-constructed = no move
-    std::vector<Move> previousPV;
-
-    for (int i = 0; i < moveCount; ++i) {
-        int score = searcher->moveScore(
-            moves[i], 
-            search_board, 
-            0,        // ply 0 at root
-            ttMove, 
-            previousPV
-        );
-        scoredMoves.emplace_back(moves[i], score);
-    }
-
-    // Sort by score descending
-    std::sort(scoredMoves.begin(), scoredMoves.end(), [](auto& a, auto& b){
-        return a.second > b.second;
-    });
-
-    // Print
-    for (auto& [move, score] : scoredMoves) {
-        std::cout << move.uci() << ": " << score << "\n";
-    }
 }

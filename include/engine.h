@@ -74,11 +74,11 @@ struct SearchSettings {
 
 struct EngineOptions {
     int  MOVE_OVERHEAD_MS = 10;
-    int  MAX_THREADS      = 1;
-    int  HASH_SIZE_MB     = 512; // use higher int range incase multi-gb TT is tried (unlikely)
+    int  MAX_THREADS      = 8;
+    int  HASH_SIZE_MB     = 1024; // use higher int range incase multi-gb TT is tried (unlikely)
     bool PONDERING        = false;
     bool UCI_SHOW_WDL     = false;
-    std::string CPU_AFFINITY = "auto"; // CPUs of the search threads: auto, none, or a list (affinity.h)
+    std::string CPU_AFFINITY = "auto"; // CPUs of search threads: auto, none, or a list (affinity.h)
 
     fs::path nnue_weight_path = NNUE_WEIGHT_FILE;
     fs::path opening_book_path = fs::path(PROJECT_ROOT) / "bin/Titans.bin";
@@ -103,6 +103,7 @@ public:
     int increment[2] = {0, 0};          // [white, black] increment
     SearchSettings settings;
     SearchLimits limits;
+    int result_depth = 0;
 
     // constructors
     Engine();
@@ -110,7 +111,7 @@ public:
     // search + eval
     std::unique_ptr<Searcher> searcher;
     NNUE nnue; 
-    TranspositionTable tt; // outside searcher for future multi-thread
+    TranspositionTable tt; // initialized from engine_options in Engine's constructor
     SearchThreadPool threads; // lazy SMP helper threads
     affinity::Spec affinity_spec; // parsed engine_options.CPU_AFFINITY
     affinity::Plan affinity_plan;
@@ -180,6 +181,7 @@ public:
     void nnueEvalTest();
     void nnueSIMDTest();
     void moveOrderingTest(int depth);
+    void ttPageBenchmark();
 
 private:
     void publishSearchStats(std::vector<SearchStats> stats);

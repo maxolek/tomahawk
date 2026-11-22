@@ -55,6 +55,7 @@ struct TimerStats { uint64_t cycles = 0; uint64_t calls = 0; };
 struct Timing { TimerStats stats[T_COUNT]{}; };
 
 inline Timing g_timing{};
+inline thread_local Timing* g_thread_timing = &g_timing;
 inline uint64_t g_game_start = 0;
 inline uint64_t g_game_end = 0;
 
@@ -69,8 +70,8 @@ struct ScopedTimer {
 
     inline ~ScopedTimer() {
         if (!active) return;
-        g_timing.stats[id].cycles += t.end();
-        g_timing.stats[id].calls++;
+        g_thread_timing->stats[id].cycles += t.end();
+        g_thread_timing->stats[id].calls++;
     }
 };
 

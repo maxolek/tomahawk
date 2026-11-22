@@ -21,7 +21,7 @@ This is the complete command inventory implemented by [UCI::handleCommand()](../
 
 `go` dispatches the search to a persistent worker, leaving the input listener free to process commands. `stop`, `position`, and `setoption` stop and wait for an active search before continuing; `isready` can be handled while a search is running. Search limits are passed by value. See [implementation boundaries](engine.md#current-implementation-boundaries).
 
-The worker's CPU placement is applied when it starts; helper threads are placed when created. Changing `Threads` or `Affinity` refreshes the plan and thread placement, but a normal `go` does not recalculate or reapply affinity.
+The search worker's CPU placement is applied when it starts; helper threads are placed when created. Changing `Threads` or `Affinity` refreshes the search plan and thread placement, but a normal `go` does not recalculate or reapply affinity. Perft uses the currently active search-thread count and the same CPU placement plan; it does not automatically use every CPU available to the process.
 
 | `go` argument | Meaning and support |
 |---|---|
@@ -45,14 +45,15 @@ The worker's CPU placement is applied when it starts; helper threads are placed 
 | `save_config <name>` | All | Save configuration through `Engine::create_config_file()` |
 | `nnue_eval` | All | Rebuild and evaluate the search board |
 | `nnue_test` | Windows only | Compare scalar/SIMD results using the external San Jacinto position file described in [validation](validation.md#nnue-agreement) |
-| `perft <depth>` | All | Print only the total legal move-tree leaf count; depth zero returns 1 |
-| `perftdivide <depth>` | All | Print every legal root move's leaf count and the total; depth zero returns 1 |
+| `perft <depth>` | All | Print the total legal move-tree leaf count and an `info string` with total/per-thread nodes, elapsed time, NPS, and effective branching factor; depth zero returns 1. Uses the active search-thread count and CPU placement. |
+| `perftdivide <depth>` | All | Print every legal root move's leaf count and the total, followed by the same total/per-thread performance info as `perft`; depth zero returns 1. Uses the active search-thread count and CPU placement. |
 | `see <square>` | All | Diagnose exchanges on a target such as `e4` |
 | `dumpzobrist` | All | Print game-board hash, recent hashes, repetition counts, and history sizes |
 | `dump_tt` | All | DEV prints detailed TT counters and fill; other builds print a no-stats message |
 | `dumpstats` | All | Print last collected search stats; detailed breakdowns require DEV |
 | `dumpmoves` | DEV only | Print the last result's root-move records |
 | `clear_tt` | All | Clear the transposition table and report occupancy before/after |
+| `ttbench` | All | Compare a deterministic 32 MB TT-style access workload on standard pages and the page-aware allocator; runs three measured rounds after warmup and reports whether large pages were obtained |
 | `print_board` | All | Print the game board |
 | `flip` | All; unsafe diagnostic | Toggle only `search_board.is_white_move`; does not synchronize `move_color`, hash, or other state. Reset with `position` before further work |
 | `bench` | All; placeholder | Recognized but does nothing |
@@ -67,7 +68,7 @@ The handshake shows defaults and advertised ranges from the current executable. 
 | Option name | Availability / advertisement | Setter behavior |
 |---|---|---|
 | `Move Overhead` | All / `uci` | Set clock-allocation overhead in milliseconds |
-| `Hash` | All / `uci` | Resize TT using the requested MB setting |
+| `Hash` | All / `uci` | Resize TT using the requested MB setting; attempts large pages where supported and reports the allocation mode |
 | `Threads` | All / `uci` | Store the value; engine still has one search worker, advertised range 1–1 |
 | `Ponder` | All / `uci` | Store the flag; pondering protocol is incomplete |
 | `UCI_ShowWDL` | All / `uci` | Store the flag; no corresponding WDL output implementation |

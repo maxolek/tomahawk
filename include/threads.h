@@ -5,9 +5,11 @@
 // helpers. Every helper searches the same root position with its own board,
 // move generator, NNUE accumulator stack and Searcher (killers, history), and
 // shares the transposition table with the main thread; that shared table is how
-// helper work reaches the main search. The main thread's result is the one
-// reported, and when it finishes it stops the helpers. Search threads are
-// pinned once when they start; changing Threads or Affinity recreates helpers.
+// helper work reaches the main search. Each thread's final best move contributes
+// its completed depth as vote weight; the move with the greatest total weight is
+// reported. Equal weights prefer more votes, then the main move. The deepest
+// thread voting for the selected move supplies its eval and PV. Search threads
+// are pinned once when they start; changing Threads or Affinity recreates helpers.
 
 #ifndef THREADS_H
 #define THREADS_H
@@ -20,6 +22,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <utility>
 #include <vector>
 
 class HelperThread {
@@ -63,6 +66,24 @@ private:
     std::thread thread; // started last, after everything it uses exists
 };
 
+struct ThreadVoteResult {
+    Move best_move = Move::NullMove();
+    int eval = -MATE_SCORE;
+    int depth = 0;
+    PV best_line;
+    int votes = 0;
+    int total_votes = 0;
+    int weight = 0;
+    int total_weight = 0;
+    struct Tally {
+        Move move;
+        int votes;
+        int weight;
+    };
+    std::vector<Tally> tallies;
+    std::vector<SearchStats> helper_stats;
+};
+
 class SearchThreadPool {
 public:
     // Shared by every thread of the running search (limits.stop_signal).
@@ -80,9 +101,10 @@ public:
     void start(const Board& root, const SearchLimits& limits, const SearchParams& params);
     // Raises the stop signal and waits for every helper to return.
     void stop_and_wait();
+    // Collect helper results and vote with the main thread's completed result.
+    ThreadVoteResult vote(const SearchResult& main_result, int main_depth) const;
     // Sum of the helpers' node counts for the last search.
     uint64_t helper_nodes() const;
-    std::vector<SearchStats> completed_stats() const;
     // Helpers whose placement the OS refused in the last search (after stop_and_wait()).
     int placement_failures() const;
 

@@ -183,7 +183,7 @@ The [position guide](position.md#reversible-state-and-position-identity) defines
 | [SearchLimits](../include/search_limits.h) | Computed start time, time allowance, depth cap, and stop flag; passed by value into iterative deepening |
 | [Searcher](../include/searcher.h) | Runs root search, negamax, qsearch, ordering, pruning, SEE, and synchronized move helpers |
 | [NNUE](../nnue/nnue.h) | Owns loaded tensors and two accumulators; supplies scalar or Windows SIMD evaluation |
-| [TranspositionTable](../include/tt.h) | Engine-owned cache reused by the searcher; `Hash` resizes it and new-game state clearing empties it |
+| [TranspositionTable](../include/tt.h) | Engine-owned cache reused by the searcher; stores 16-byte slots without age metadata, and `Hash` sizes the power-of-two slot array |
 | [SearchResult / RootMove / PV](../include/search_result.h) | Return move, score, continuation, and root search records to the engine |
 | [PolyglotBook](../include/book.h) | Optional early choice before iterative deepening |
 
@@ -215,7 +215,7 @@ Telemetry is shared through [session.h](../include/session.h), [logging.h](../in
 
 These describe the checked-in behavior rather than all capabilities suggested by option names:
 
-- **Single search worker:** `Threads` is advertised with min/max 1. Search runs synchronously inside the UCI listener, so it cannot consume `stop` or `quit` while searching. `Engine::stopSearch()` also changes the engine's limits, while iterative deepening uses a copy.
+- **Threaded search and voting:** Each active thread searches the same root with private search state and a shared transposition table. Each thread's final best move contributes its completed search depth as vote weight. The move with the greatest summed depth is reported; equal weights prefer more votes, then the main thread's move. The deepest thread voting for the selected move supplies the reported evaluation and PV.
 - **Partial search controls:** `go nodes` is parsed but `SearchLimits` has no node budget. `go infinite` does not bypass the ordinary clock calculation. `Ponder` is an option, but the UCI `ponderhit` branch is empty. `UCI_ShowWDL` is stored without a WDL-output path in the active `go` handler.
 - **Network loading:** CMake selects a compatible network with `NNUE_FILE` (or its `SMALL_NET`-dependent default), copies it to the sibling `nnue/<engine>.nnue.bin` folder, and compiles in that fixed path. Networks cannot be changed through UCI or engine config. See [loading and compatibility](../nnue/weights/readme.md#loading-and-compatibility).
 - **Optional/stub services:** an opening book is attempted if its configured path is nonempty. Syzygy loading, `bench`, and `speedtest` are stubs rather than active implementations.

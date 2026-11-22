@@ -236,7 +236,7 @@ target_link_libraries(tomahawk PRIVATE Threads::Threads)
 # Platform-specific linking
 # -------------------
 if (WIN32)
-    target_link_libraries(tomahawk PRIVATE ole32)
+    target_link_libraries(tomahawk PRIVATE ole32 advapi32)
 endif()
 
 # -------------------

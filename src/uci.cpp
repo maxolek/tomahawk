@@ -83,7 +83,8 @@ void UCI::handleCommand(const std::string& line) {
 
             // engine options
             std::cout << "option name Move Overhead type spin default " << engine->engine_options.MOVE_OVERHEAD_MS << " min 0 max 1000\n";
-            std::cout << "option name Threads type spin default " << engine->engine_options.MAX_THREADS<< " min 1 max 1\n";
+            std::cout << "option name Threads type spin default " << engine->engine_options.MAX_THREADS
+                      << " min 1 max 8\n";
             std::cout << "option name Hash type spin default " << engine->engine_options.HASH_SIZE_MB<< " min 1 max 1024\n";
             std::cout << "option name Ponder type check default " << (engine->engine_options.PONDERING ? "true" : "false") << "\n";
             // Required for lichess
@@ -158,13 +159,17 @@ void UCI::handleCommand(const std::string& line) {
     }
     else if (token == "perft") {
         int perft_depth;
-        if (iss >> perft_depth)
+        if (iss >> perft_depth) {
+            waitForSearch();
             engine->perftPrint(perft_depth);
+        }
     }
     else if (token == "perftdivide") {
         int perft_depth;
-        if (iss >> perft_depth)
+        if (iss >> perft_depth) {
+            waitForSearch();
             engine->perftDivide(perft_depth);
+        }
     }
     else if (token == "see") {
         std::string target_sq;
@@ -176,13 +181,21 @@ void UCI::handleCommand(const std::string& line) {
         handleZobrist();
     }
     else if (token == "dump_tt") {
+        std::cout << "(TT since clear/resize) Overwrites: "
+                  << engine->tt.overwrites() << std::endl;
         #if defined(DEV) || defined(STATS)
-            std::cout << "\n(Last search) Stores:     " << g_stats.tt_stores << std::endl;
-            std::cout << "\n(Last search) Hits:       " << g_stats.tt_hits << std::endl;
-            std::cout << "\n(Last search) Overwrites: " << g_stats.tt_overwritten << std::endl;
-            std::cout << "\n(Full game)   Fill %:     " << round_to_n_decimals(100*engine->tt.fillRatio(),2) << " %" << std::endl;
+            const std::vector<SearchStats> stats = engine->completedSearchStats();
+            if (stats.empty()) {
+                std::cout << "No completed search stats available.\n";
+            } else {
+                const SearchStats total = combineSearchStats(stats);
+                std::cout << "\n(Last search) Stores:     " << total.tt_stores << std::endl;
+                std::cout << "\n(Last search) Hits:       " << total.tt_hits << std::endl;
+            }
+            std::cout << "\n(Full game)   Fill %:     "
+                      << round_to_n_decimals(100 * engine->tt.fillRatio(), 2) << " %" << std::endl;
         #else 
-            std::cout << _no_stats_str << std::endl;
+            std::cout << "info string per-search TT counters unavailable in this build" << std::endl;
         #endif
     }
     else if (token == "threadstats" || token == "allstats" || token == "dumpstats") {
@@ -211,6 +224,10 @@ void UCI::handleCommand(const std::string& line) {
     }
     else if (token == "clear_tt") {
         handleClearTT();
+    }
+    else if (token == "ttbench") {
+        waitForSearch();
+        engine->ttPageBenchmark();
     }
     else if (token == "bench") {
         //engine->bench(depth);  // implement bench mode
@@ -447,14 +464,17 @@ void UCI::handleZobrist() {
 
 void UCI::handleClearTT() {
     const size_t filled = engine->tt.filled();
-    std::cout << "\nClearing ... " 
-            << filled << " / " << engine->tt.entriesCount 
+    const size_t entries = engine->tt.size();
+    std::cout << "Clearing ... \n"
+            << filled << " / " << entries
             << "  "
-            << std::fixed << std::setprecision(1) << 100.0 * static_cast<double>(filled) / static_cast<double>(engine->tt.entriesCount)
+            << std::fixed << std::setprecision(1)
+            << (entries == 0 ? 0.0 : 100.0 * static_cast<double>(filled) / static_cast<double>(entries))
             << "%  " 
-            << std::fixed << std::setprecision(1) << (sizeof(TTEntry) * filled) / 1024 / 1024
-            << " MBs\n"  << std::endl;
+            << std::fixed << std::setprecision(1)
+            << engine->tt.occupiedBytes(filled) / 1024 / 1024
+            << " MBs"  << std::endl;
 
     engine->tt.clear();
-    std::cout << "\nCleared!\n" << std::endl;
+    std::cout << "Cleared!" << std::endl;
 }

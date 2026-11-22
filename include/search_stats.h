@@ -66,7 +66,6 @@ struct SearchStats {
     uint64_t tt_returns = 0;                              
     uint64_t tt_stores = 0;
     double tt_fill_ratio = 0.0; // snapshot
-    uint64_t tt_overwritten = 0;
     //uint64_t iid = 0; // internal iterative deepening
     uint64_t fail_highs = 0;
     uint64_t fail_lows = 0;
@@ -171,7 +170,6 @@ inline SearchStats combineSearchStats(const std::vector<SearchStats>& stats) {
         total.tt_hits += thread.tt_hits;
         total.tt_returns += thread.tt_returns;
         total.tt_stores += thread.tt_stores;
-        total.tt_overwritten += thread.tt_overwritten;
         total.fail_highs += thread.fail_highs;
         total.fail_lows += thread.fail_lows;
         total.aspiration_fail_low_researches += thread.aspiration_fail_low_researches;
@@ -535,7 +533,6 @@ inline void logSearchStats(const std::string& fen = "") {
         << "\"tt_returns\":" << g_stats.tt_returns << ","
         << "\"tt_stores\":" << g_stats.tt_stores << ","
         << "\"tt_fill\":" << g_stats.tt_fill_ratio << ","
-        << "\"tt_overwritten\":" << g_stats.tt_overwritten << ","
 
         << "\"fail_highs\":" << g_stats.fail_highs << ","
         << "\"fail_lows\":" << g_stats.fail_lows << ","
@@ -721,7 +718,6 @@ inline void dumpSearchStats()
     row("Returns", g_stats.tt_returns);
     row("Hits", g_stats.tt_hits);
     row("Stores", g_stats.tt_stores);
-    row("Overwritten", g_stats.tt_overwritten);
     row("Fill Ratio", g_stats.tt_fill_ratio * 100.0, "%");
     row("Return Rate", tt_return_pct, "%");
     row("Hit Rate", tt_hit_pct, "%");
@@ -956,8 +952,7 @@ inline void dumpSearchSummary(const SearchStats& stats)
 
     section("Transposition table");
     pairRow("Returns", valueString(stats.tt_returns), "Hits", valueString(stats.tt_hits));
-    pairRow("Stores", valueString(stats.tt_stores),
-            "Overwritten", valueString(stats.tt_overwritten));
+    row("Stores", valueString(stats.tt_stores));
     pairRow("Fill ratio", percentString(stats.tt_fill_ratio * 100.0),
             "Return rate", percentString(tt_return_pct));
     row("Hit rate", percentString(tt_hit_pct));

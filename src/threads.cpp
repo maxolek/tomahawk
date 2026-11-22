@@ -3,6 +3,50 @@
 
 #include <threads.h>
 
+#include <algorithm>
+#include <iterator>
+
+namespace {
+
+struct CandidateVote {
+    Move move;
+    int eval;
+    int depth;
+    PV best_line;
+    bool main_thread;
+};
+
+struct VoteTally {
+    Move move;
+    int count = 0;
+    int weight = 0; // sum of depths (instead of counts)
+    bool includes_main = false;
+    size_t representative = 0;
+};
+
+bool better_candidate(const CandidateVote& candidate, const CandidateVote& current) {
+    if (candidate.depth != current.depth) return candidate.depth > current.depth;
+    if (candidate.eval != current.eval) return candidate.eval > current.eval;
+    return candidate.main_thread && !current.main_thread;
+}
+
+PV helper_pv(Move best_move, const std::vector<Move>& line) {
+    PV pv;
+    if (line.empty() || !Move::SameMove(line.front(), best_move)) {
+        pv.moves[0] = best_move.Value();
+        pv.length = 1;
+        return pv;
+    }
+
+    const int count = std::min(static_cast<int>(line.size()), PV::MAX_LEN);
+    for (int i = 0; i < count; ++i)
+        pv.moves[i] = line[static_cast<size_t>(i)].Value();
+    pv.length = count;
+    return pv;
+}
+
+} // namespace
+
 // ------------------------------------------------------------
 // HelperThread
 // ------------------------------------------------------------
@@ -125,6 +169,86 @@ void SearchThreadPool::stop_and_wait() {
     for (auto& helper : helpers) helper->wait();
 }
 
+ThreadVoteResult SearchThreadPool::vote(const SearchResult& main_result, int main_depth) const {
+    ThreadVoteResult result;
+    result.helper_stats.reserve(helpers.size());
+    for (const auto& helper : helpers)
+        result.helper_stats.push_back(helper->completed_stats());
+
+    std::vector<CandidateVote> candidates;
+    candidates.reserve(result.helper_stats.size() + 1);
+    candidates.push_back({
+        main_result.bestMove, main_result.eval, main_depth, main_result.best_line, true
+    });
+    for (const SearchStats& stats : result.helper_stats) {
+        candidates.push_back({
+            stats.move, stats.eval, stats.max_completed_depth,
+            helper_pv(stats.move, stats.principal_variation), false
+        });
+    }
+
+    std::vector<VoteTally> tallies;
+    for (size_t i = 0; i < candidates.size(); ++i) {
+        const CandidateVote& candidate = candidates[i];
+        if (Move::SameMove(candidate.move, Move::NullMove())) continue;
+
+        auto tally = std::find_if(tallies.begin(), tallies.end(), [&](const VoteTally& entry) {
+            return Move::SameMove(entry.move, candidate.move);
+        });
+        if (tally == tallies.end()) {
+            tallies.push_back({candidate.move, 0, 0, false, i});
+            tally = std::prev(tallies.end());
+        }
+
+        ++tally->count;
+        tally->weight += std::max(candidate.depth, 0);
+
+        tally->includes_main = tally->includes_main || candidate.main_thread;
+        if (better_candidate(candidate, candidates[tally->representative]))
+            tally->representative = i;
+    }
+
+    size_t winner = tallies.size();
+    for (size_t i = 0; i < tallies.size(); ++i) {
+        const VoteTally& tally = tallies[i];
+        result.total_votes += tally.count;
+        result.total_weight += tally.weight;
+        result.tallies.push_back({tally.move, tally.count, tally.weight});
+        if (winner == tallies.size()) {
+            winner = i;
+            continue;
+        }
+
+        const VoteTally& current = tallies[winner];
+        bool better_tally = false;
+        if (tally.weight != current.weight) {
+            better_tally = tally.weight > current.weight;
+        } else if (tally.count != current.count) {
+            better_tally = tally.count > current.count;
+        } else if (tally.includes_main != current.includes_main) {
+            better_tally = tally.includes_main;
+        } else {
+            better_tally = better_candidate(candidates[tally.representative],
+                                            candidates[current.representative]);
+        }
+        if (better_tally) {
+            winner = i;
+        }
+    }
+
+    if (winner != tallies.size()) {
+        const VoteTally& winning_tally = tallies[winner];
+        const CandidateVote& representative = candidates[winning_tally.representative];
+        result.best_move = representative.move;
+        result.eval = representative.eval;
+        result.depth = representative.depth;
+        result.best_line = representative.best_line;
+        result.votes = winning_tally.count;
+        result.weight = winning_tally.weight;
+    }
+    return result;
+}
+
 uint64_t SearchThreadPool::helper_nodes() const {
     uint64_t total = 0;
     for (const auto& helper : helpers) total += helper->nodes();
@@ -135,12 +259,4 @@ int SearchThreadPool::placement_failures() const {
     int failures = 0;
     for (const auto& helper : helpers) failures += helper->placement_failed() ? 1 : 0;
     return failures;
-}
-
-std::vector<SearchStats> SearchThreadPool::completed_stats() const {
-    std::vector<SearchStats> stats;
-    stats.reserve(helpers.size());
-    for (const auto& helper : helpers)
-        stats.push_back(helper->completed_stats());
-    return stats;
 }

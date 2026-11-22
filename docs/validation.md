@@ -22,7 +22,7 @@ Use [build modes and statistics](stats.md) to choose production measurements, DE
 
 ## Position and move-generation checks
 
-The UCI diagnostic `perft <depth>` calls `Engine::perftDivide()`, which prints each legal root move and its recursive leaf-node count, followed by the total. `Engine::perftPrint()` prints only the total. Both recursively count legal move-tree leaves using board make/unmake and full move generation; neither calls NNUE or selective search, nor stops branches for search draw rules.
+The UCI diagnostic `perft <depth>` prints the total and an `info string` with elapsed time, total NPS, effective branching factor, and per-thread node/time/NPS figures. `perftdivide <depth>` also prints every legal root move's recursive leaf-node count and the total. Both use the engine's active search-thread count and CPU placement, dynamically distributing root subtrees (and shallow descendants when needed) among workers. Perft runs independently of search; its worker count follows the `Threads` setting without starting search workers. They count legal move-tree leaves using board make/unmake and full move generation; neither calls NNUE or selective search, nor stops branches for search draw rules.
 
 For a basic check, start the engine built using the [README instructions](../README.md#build) and enter:
 
