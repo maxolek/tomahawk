@@ -242,6 +242,7 @@ ThreadVoteResult SearchThreadPool::vote(const SearchResult& main_result, int mai
         result.best_move = representative.move;
         result.eval = representative.eval;
         result.depth = representative.depth;
+        // Keep the winning representative thread's PV intact; never splice lines across threads.
         result.best_line = representative.best_line;
         result.votes = winning_tally.count;
         result.weight = winning_tally.weight;

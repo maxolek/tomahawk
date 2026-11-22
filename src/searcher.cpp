@@ -18,6 +18,35 @@ void Searcher::updatePV(std::vector<Move>& pv, const Move& move, const std::vect
     pv.insert(pv.end(), childPV.begin(), childPV.end());
 }
 
+void Searcher::extractTTLine(PV& pv) {
+    pv.clear();
+    Move line[PV::MAX_LEN];
+    int line_length = 0;
+
+    while (line_length < PV::MAX_LEN) {
+        if (board.currentGameState.fiftyMoveCounter >= 100 || board.isThreefold())
+            break;
+
+        const TTEntry entry = tt.probe(board.zobrist_hash);
+        if (entry.key != board.zobrist_hash || entry.depth <= 0)
+            break;
+
+        const Move tt_move(entry.bestMove);
+        if (tt_move.IsNull())
+            break;
+
+        // A matching full Zobrist key identifies the position; stored TT moves
+        // came from legal move generation, so don't regenerate moves to validate.
+        line[line_length++] = tt_move;
+        board.MakeMove(tt_move);
+    }
+
+    for (int i = line_length - 1; i >= 0; --i)
+        board.UnmakeMove(line[i]);
+    for (int i = 0; i < line_length; ++i)
+        pv.moves[pv.length++] = line[i].Value();
+}
+
 // leaf node pruning
 bool Searcher::shouldPrune(Move& move, int standPat, int alpha, [[maybe_unused]] int search_depth, [[maybe_unused]] int ply) {
     const int captured = board.getCapturedPiece(move.TargetSquare());
@@ -437,6 +466,7 @@ void Searcher::verify_accumulators(const Move& move) {
 // ============================================================================
 
 int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int ply, int depth, int search_depth, bool& tainted) {
+    pv.clear();
     if (limits.poll_out_of_time()) return alpha;
     g_stats.max_qdepth = std::max(g_stats.max_qdepth, ply);
     #if defined(DEV) || defined(STATS)
@@ -470,11 +500,14 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
 
     // Use incremental NNUE output (accumulators must be kept in sync)
     //boardallGameMoves.back().PrintMove();
-    int standPat = evaluate_position();
+    const bool in_check = board.is_in_check;
+    int standPat = in_check ? -MATE_SCORE : evaluate_position();
     //int standPat = nnue.eval_screlu_simd(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
     //int standPat = nnue.evaluate(board.is_white_move, (board.colorBitboards[0] | board.colorBitboards[1]));
-    if (standPat >= beta) return standPat;
-    if (standPat > alpha) alpha = standPat;
+    if (!in_check) {
+        if (standPat >= beta) return standPat;
+        if (standPat > alpha) alpha = standPat;
+    }
 
     //return standPat;
 
@@ -487,7 +520,7 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
     }
     std::copy_n(movegen.moves, count, moves);
 
-    int bestEval = standPat;
+    int bestEval = in_check ? -MATE_SCORE : standPat;
     Move bestMove = Move::NullMove();
     bool is_king_move = false;
     bool build_accums = false;
@@ -510,7 +543,8 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
         // Undo board & NNUE (capture before must be reconstructed from states)
         perform_unmove(board, m, build_accums);
 
-        if (score >= beta) { 
+        if (score >= beta) {
+            pv.set(m, childPV);
             #if defined(DEV) || defined(STATS)
                 STATS_FAILHIGH(search_depth, ply, i);
             #endif
@@ -539,6 +573,7 @@ int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int 
 int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                       std::vector<Move>& previousPV, SearchLimits& limits, int ply, 
                       bool can_nmp, bool& tainted) {
+    pv.clear();
     if (limits.poll_out_of_time()) return alpha;
     #if defined(DEV) || defined(STATS)
         STATS_NODE(depth+ply, ply); // track node per depth
@@ -582,9 +617,18 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
             #endif 
 
             int ttScore = ttEntry.eval;
-            if (ttEntry.flag == EXACT) return ttScore;
-            else if (ttEntry.flag == UPPERBOUND && ttScore <= alpha) return ttScore;
-            else if (ttEntry.flag == LOWERBOUND && ttScore >= beta)  return ttScore;
+            if (ttEntry.flag == EXACT) {
+                extractTTLine(pv);
+                return ttScore;
+            }
+            else if (ttEntry.flag == UPPERBOUND && ttScore <= alpha) {
+                extractTTLine(pv);
+                return ttScore;
+            }
+            else if (ttEntry.flag == LOWERBOUND && ttScore >= beta) {
+                extractTTLine(pv);
+                return ttScore;
+            }
         }
     } 
 

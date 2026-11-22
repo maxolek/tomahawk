@@ -229,6 +229,9 @@ public:
     // prefetch_tt: the child will probe the TT (it is a negamax node with depth > 0)
     void perform_move(Board& board, const Move& move, const bool update_kings, const bool prefetch_tt = false);
     void perform_unmove(Board& board, const Move& move, const bool update_kings);
+
+private:
+    void extractTTLine(PV& pv);
 };
 
 #endif // SEARCHER_H
