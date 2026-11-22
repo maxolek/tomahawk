@@ -85,7 +85,7 @@ void UCI::handleCommand(const std::string& line) {
             std::cout << "option name Move Overhead type spin default " << engine->engine_options.MOVE_OVERHEAD_MS << " min 0 max 1000\n";
             std::cout << "option name Threads type spin default " << engine->engine_options.MAX_THREADS
                       << " min 1 max 8\n";
-            std::cout << "option name Hash type spin default " << engine->engine_options.HASH_SIZE_MB<< " min 1 max 1024\n";
+            std::cout << "option name Hash type spin default " << engine->engine_options.HASH_SIZE_MB<< " min 1 max 4096\n";
             std::cout << "option name Ponder type check default " << (engine->engine_options.PONDERING ? "true" : "false") << "\n";
             // Required for lichess
             std::cout << "option name UCI_ShowWDL type check default " << (engine->engine_options.UCI_SHOW_WDL ? "true" : "false") << "\n";

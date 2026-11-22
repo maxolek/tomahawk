@@ -256,6 +256,13 @@ uint64_t SearchThreadPool::helper_nodes() const {
     return total;
 }
 
+int SearchThreadPool::helper_seldepth() const {
+    int maximum = 0;
+    for (const auto& helper : helpers)
+        maximum = std::max(maximum, helper->seldepth());
+    return maximum;
+}
+
 int SearchThreadPool::placement_failures() const {
     int failures = 0;
     for (const auto& helper : helpers) failures += helper->placement_failed() ? 1 : 0;

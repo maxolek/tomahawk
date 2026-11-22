@@ -58,7 +58,9 @@ struct SearchStats {
     // full summary
     int max_completed_depth = 0;
     int max_depth = 0;
-    int max_qdepth = 0;
+    int max_seldepth = 0;
+    int hashfull = 0;
+    double ebf = 0.0;
     uint64_t nodes = 0;
     #if defined(DEV) || defined(STATS)
     uint64_t qnodes = 0;
@@ -87,7 +89,6 @@ struct SearchStats {
     std::array<int, STATS_MAX_ITER_DEPTH> it_depth_eval{};
     std::array<Move, STATS_MAX_ITER_DEPTH> it_depth_move{};
     //std::vector<std::vector<Move>> it_depth_pv;
-    std::array<int, STATS_MAX_ITER_DEPTH> it_depth_qdepth{};
     std::array<uint64_t, STATS_MAX_ITER_DEPTH> it_depth_nodes{};
     std::array<uint64_t, STATS_MAX_ITER_DEPTH> it_depth_qnodes{};
     std::array<uint64_t, STATS_MAX_ITER_DEPTH> it_depth_ttstores{};
@@ -162,7 +163,9 @@ inline SearchStats combineSearchStats(const std::vector<SearchStats>& stats) {
         total.time_ms = std::max(total.time_ms, thread.time_ms);
         total.max_completed_depth = std::max(total.max_completed_depth, thread.max_completed_depth);
         total.max_depth = std::max(total.max_depth, thread.max_depth);
-        total.max_qdepth = std::max(total.max_qdepth, thread.max_qdepth);
+        total.max_seldepth = std::max(total.max_seldepth, thread.max_seldepth);
+        total.hashfull = std::max(total.hashfull, thread.hashfull);
+        total.ebf = std::max(total.ebf, thread.ebf);
         total.nodes += thread.nodes;
 
         #if defined(DEV) || defined(STATS)
@@ -184,7 +187,6 @@ inline SearchStats combineSearchStats(const std::vector<SearchStats>& stats) {
         addSearchStatsArray(total.fail_high_index, thread.fail_high_index);
         addSearchStatsArray(total.pvs_researches, thread.pvs_researches);
         addSearchStatsArray(total.it_depth_time_ms, thread.it_depth_time_ms);
-        maxSearchStatsArray(total.it_depth_qdepth, thread.it_depth_qdepth);
         addSearchStatsArray(total.it_depth_nodes, thread.it_depth_nodes);
         addSearchStatsArray(total.it_depth_qnodes, thread.it_depth_qnodes);
         addSearchStatsArray(total.it_depth_ttstores, thread.it_depth_ttstores);
@@ -253,9 +255,7 @@ inline void resetSearchStats() {
         /*STATS_BOUNDS_CHECK(it_d, ply);*/                    \
         g_stats.qnodes++;                               \
         g_stats.it_depth_qnodes[it_d]++;                \
-        g_stats.it_depth_qdepth[it_d] = std::max(g_stats.it_depth_qdepth[it_d], ply); \
         g_stats.tree_depth_qnodes[ply]++;               \
-        g_stats.max_qdepth = std::max(g_stats.max_qdepth, ply); \
     } while (0)
 
 #define STATS_ASPIRATION_FAILLOW(depth) \
@@ -494,7 +494,7 @@ inline void logSearchStats(const std::string& fen = "") {
 
     #if defined(DEV) || defined(STATS)
     size_t n = g_stats.max_depth + 1;
-    size_t q_n = g_stats.max_qdepth + 1;
+    size_t q_n = g_stats.max_seldepth + 1;
 
     auto moves_list_to_json = [](const std::vector<Move>& v) { 
         std::ostringstream oss; 
@@ -522,9 +522,16 @@ inline void logSearchStats(const std::string& fen = "") {
         << "\"qnodes\":" << g_stats.qnodes << ","
 
         << "\"max_depth\":" << g_stats.max_depth << ","
-        << "\"max_qdepth\":" << g_stats.max_qdepth << ","
+        << "\"max_seldepth\":" << g_stats.max_seldepth << ","
         << "\"completed_depth\":" << g_stats.max_completed_depth << ","
         << "\"time_ms\":" << g_stats.time_ms << ","
+        << "\"hashfull\":" << g_stats.hashfull << ","
+        << "\"ebf\":";
+        if (g_stats.ebf > 0.0)
+            out << g_stats.ebf;
+        else
+            out << "null";
+        out << ","
         << "\"root_eval\":" << g_stats.eval << ","
         << "\"best_move\":\"" << g_stats.move.uci() << "\","
         << "\"principal_variation\":" << moves_list_to_json(g_stats.principal_variation) << ","
@@ -557,7 +564,6 @@ inline void logSearchStats(const std::string& fen = "") {
         << "\"itdepth_move\":" << moves_to_json(g_stats.it_depth_move, n) << ","
         << "\"itdepth_nodes\":" << array_to_json(g_stats.it_depth_nodes, n) << ","
         << "\"itdepth_qnodes\":" << array_to_json(g_stats.it_depth_qnodes, n) << ","
-        << "\"itdepth_qdepth\":" << array_to_json(g_stats.it_depth_qdepth, n) << ","
         << "\"itdepth_tthits\":" << array_to_json(g_stats.it_depth_tthits, n) << ","
         << "\"itdepth_tt_returns\":" << array_to_json(g_stats.it_depth_tt_returns, n) << ","
         << "\"itdepth_ttstores\":" << array_to_json(g_stats.it_depth_ttstores, n) << ","
@@ -701,7 +707,7 @@ inline void dumpSearchStats()
     row("Time (ms)", g_stats.time_ms);
     row("Depth", g_stats.max_depth);
     row("Completed Depth", g_stats.max_completed_depth);
-    row("Max QDepth", g_stats.max_qdepth);
+    row("Selective Depth", g_stats.max_seldepth);
  
     // ===================== NODES =====================
     section("NODES");
@@ -768,7 +774,6 @@ inline void dumpSearchStats()
          << setw(9)  << "Time"
          << setw(11)  << "Nodes"
          << setw(11)  << "QNodes"
-         << setw(5)  << "QD"
          << setw(9)  << "TTRet"
          << setw(9)  << "TTHit"
          << setw(9)  << "TTSt"
@@ -798,7 +803,6 @@ inline void dumpSearchStats()
              << setw(9)  << g_stats.it_depth_time_ms[d]
              << setw(11)  << g_stats.it_depth_nodes[d]
              << setw(11)  << g_stats.it_depth_qnodes[d]
-             << setw(5)  << g_stats.it_depth_qdepth[d]
              << setw(9)  << g_stats.it_depth_tt_returns[d]
              << setw(9)  << g_stats.it_depth_tthits[d]
              << setw(9)  << g_stats.it_depth_ttstores[d]
@@ -920,7 +924,7 @@ inline void dumpSearchSummary(const SearchStats& stats)
     pairRow("Time", std::to_string(stats.time_ms) + " ms",
             "Depth / completed", std::to_string(stats.max_depth) + " / " +
                                  std::to_string(stats.max_completed_depth));
-    row("Maximum qdepth", valueString(stats.max_qdepth));
+    row("Selective depth", valueString(stats.max_seldepth));
     std::cout << "  " << std::left << std::setw(28) << "Principal variation";
     for (const Move& move : stats.principal_variation)
         std::cout << move.uci() << ' ';

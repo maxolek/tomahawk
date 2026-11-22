@@ -196,6 +196,21 @@ public:
                                  : static_cast<double>(filled()) / static_cast<double>(entriesCount);
     }
 
+    // UCI hashfull is permille; sample evenly so reporting it is constant-time for large tables.
+    int hashfull() const {
+        if (entriesCount == 0) return 0;
+        const std::size_t sample_count = entriesCount < 1000 ? entriesCount : 1000;
+        std::size_t occupied = 0;
+        for (std::size_t i = 0; i < sample_count; ++i) {
+            const std::size_t index = (entriesCount / sample_count) * i
+                + ((entriesCount % sample_count) * i) / sample_count;
+            const Slot& slot = table[index];
+            occupied += (slot.check.load(std::memory_order_relaxed)
+                         ^ slot.data.load(std::memory_order_relaxed)) != 0;
+        }
+        return static_cast<int>(occupied * 1000 / sample_count);
+    }
+
 
 private:
     struct Slot {

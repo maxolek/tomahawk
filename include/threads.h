@@ -39,6 +39,10 @@ public:
     void wait();
     void wait_until_placed();
     SearchStats completed_stats() const;
+    int seldepth() const {
+        std::lock_guard<std::mutex> lock(mutex);
+        return last_search_stats.max_seldepth;
+    }
     // Nodes of the last search; valid after wait().
     uint64_t nodes() const { return searcher->nodes; }
     // The OS refused this helper's configured placement.
@@ -105,6 +109,7 @@ public:
     ThreadVoteResult vote(const SearchResult& main_result, int main_depth) const;
     // Sum of the helpers' node counts for the last search.
     uint64_t helper_nodes() const;
+    int helper_seldepth() const;
     // Helpers whose placement the OS refused in the last search (after stop_and_wait()).
     int placement_failures() const;
 

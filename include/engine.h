@@ -75,7 +75,7 @@ struct SearchSettings {
 struct EngineOptions {
     int  MOVE_OVERHEAD_MS = 10;
     int  MAX_THREADS      = 8;
-    int  HASH_SIZE_MB     = 1024; // use higher int range incase multi-gb TT is tried (unlikely)
+    int  HASH_SIZE_MB     = 2048; // use higher int range incase multi-gb TT is tried (unlikely)
     bool PONDERING        = false;
     bool UCI_SHOW_WDL     = false;
     std::string CPU_AFFINITY = "auto"; // CPUs of search threads: auto, none, or a list (affinity.h)

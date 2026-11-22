@@ -467,8 +467,8 @@ void Searcher::verify_accumulators(const Move& move) {
 
 int Searcher::quiescence(int alpha, int beta, PV& pv, SearchLimits& limits, int ply, int depth, int search_depth, bool& tainted) {
     pv.clear();
+    g_stats.max_seldepth = std::max(g_stats.max_seldepth, ply);
     if (limits.poll_out_of_time()) return alpha;
-    g_stats.max_qdepth = std::max(g_stats.max_qdepth, ply);
     #if defined(DEV) || defined(STATS)
         STATS_QNODE(search_depth, ply); 
     #endif 
@@ -574,6 +574,7 @@ int Searcher::negamax(int depth, int alpha, int beta, PV& pv,
                       std::vector<Move>& previousPV, SearchLimits& limits, int ply, 
                       bool can_nmp, bool& tainted) {
     pv.clear();
+    g_stats.max_seldepth = std::max(g_stats.max_seldepth, ply);
     if (limits.poll_out_of_time()) return alpha;
     #if defined(DEV) || defined(STATS)
         STATS_NODE(depth+ply, ply); // track node per depth

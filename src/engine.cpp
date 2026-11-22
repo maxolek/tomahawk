@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <iostream>
 #include <chrono>
+#include <cmath>
 #include <sstream>
 
 // ------------------
@@ -400,6 +401,8 @@ void Engine::startSearch() {
     g_stats.principal_variation = main_pv;
 
     ThreadVoteResult vote = threads.vote(result, g_stats.max_completed_depth);
+    for (const SearchStats& thread_stats : vote.helper_stats)
+        g_stats.max_seldepth = std::max(g_stats.max_seldepth, thread_stats.max_seldepth);
     if (!Move::SameMove(vote.best_move, Move::NullMove())) {
         result_depth = vote.depth;
         result.bestMove = vote.best_move;
@@ -434,11 +437,17 @@ void Engine::startSearch() {
     #if !defined(DEV) && !defined(STATS)
         g_stats.nodes = searcher->nodes;
     #endif
+    uint64_t total_nodes = g_stats.nodes;
+    #if defined(DEV) || defined(STATS)
+        total_nodes += g_stats.qnodes;
+    #endif
+    total_nodes += threads.helper_nodes();
+    g_stats.hashfull = tt.hashfull();
+    g_stats.ebf = result_depth > 0 && total_nodes > 0
+        ? std::pow(static_cast<double>(total_nodes), 1.0 / result_depth)
+        : 0.0;
     #if defined(DEV) || defined(STATS)
         g_stats.game_ply = ply;
-
-        //g_stats.ebf = pow(double(g_stats.nodes) / 1.0, 1.0 / g_stats.maxDepth); // rough estimate
-        //g_stats.qratio = double(g_stats.qnodes) / g_stats.nodes;
 
         tracker.bestMoves.push_back(bestMove);
         tracker.evals.push_back(bestEval);
@@ -575,14 +584,17 @@ void Engine::sendSearchInfo() {
         total_nodes += g_stats.qnodes;
     #endif
     total_nodes += threads.helper_nodes();
+    const int seldepth = std::max(g_stats.max_seldepth, threads.helper_seldepth());
 
     std::cout << "info";
     std::cout << " depth " << result_depth;
-    #if defined(DEV) || defined(STATS)
-    std::cout << " qdepth " << g_stats.max_qdepth;
-    #endif
+    std::cout << " seldepth " << seldepth;
     std::cout << " nodes " << total_nodes;
     std::cout << " time " << g_stats.time_ms;
+    std::cout << " hashfull " << tt.hashfull();
+    // Approximate EBF as the geometric mean nodes per completed ply.
+    if (result_depth > 0 && total_nodes > 0)
+        std::cout << " ebf " << std::pow(static_cast<double>(total_nodes), 1.0 / result_depth);
     std::cout << " score cp " << result.eval;
     std::cout << " pv";
     for (const auto& move : result.best_line.to_vector()) {
